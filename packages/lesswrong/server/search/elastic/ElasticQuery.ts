@@ -276,7 +276,7 @@ class ElasticQuery {
         track_total_hits: true,
         highlight: {
           fields: {
-            [snippet]: tags,
+            ...(snippet && {[snippet]: tags}),
             ...(highlight && {[highlight]: tags}),
           },
           fragment_size: 140,

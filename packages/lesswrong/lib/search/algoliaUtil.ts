@@ -6,6 +6,7 @@ import {
   algoliaPrefixSetting,
 } from '../publicSettings';
 import { userHasElasticsearch } from "../betas";
+import { useEffect, useState } from "react";
 
 export const algoliaIndexedCollectionNames = ["Comments", "Posts", "Users", "Sequences", "Tags"] as const
 export type AlgoliaIndexCollectionName = typeof algoliaIndexedCollectionNames[number]
@@ -57,4 +58,42 @@ export const getSearchClient = (): Client => {
     throw new Error("Couldn't initialize search client");
   }
   return client
+}
+
+export const useSearch = <T>(
+  indexName: string,
+  query: string,
+  facetFilters?: string[],
+) => {
+  const [results, setResults] = useState<T[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    (async () => {
+      try {
+        const searchClient = getSearchClient();
+        const response = await searchClient.search([
+          {
+            indexName,
+            query,
+            params: {
+              query,
+              facetFilters: facetFilters ? [facetFilters] : [],
+            },
+          },
+        ]);
+        setResults(response?.results?.[0]?.hits ?? null);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error(e);
+        setError(e);
+      }
+      setLoading(false);
+    })();
+  }, [query]);
+
+  return {results, loading, error};
 }

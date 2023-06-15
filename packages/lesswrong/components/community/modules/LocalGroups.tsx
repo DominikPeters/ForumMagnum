@@ -1,12 +1,12 @@
 import { Components, registerComponent, } from '../../../lib/vulcan-lib';
 import React, { MouseEventHandler } from 'react';
 import { createStyles } from '@material-ui/core/styles';
-import { useMulti } from '../../../lib/crud/withMulti';
 import { Link } from '../../../lib/reactRouterWrapper';
 import { cloudinaryCloudNameSetting } from '../../../lib/publicSettings';
 import Button from '@material-ui/core/Button';
 import { requireCssVar } from '../../../themes/cssVars';
 import { isEAForum } from '../../../lib/instanceSettings';
+import { useSearch } from '../../../lib/search/algoliaUtil';
 
 const styles = createStyles((theme: ThemeType): JssStyles => ({
   noResults: {
@@ -180,17 +180,14 @@ const LocalGroups = ({keywordSearch, userLocation, distanceUnit='km', includeIna
     view: 'local',
     includeInactive,
   }
-  
-  const { results, loading } = useMulti({
-    terms: groupsListTerms,
-    collectionName: "Localgroups",
-    fragmentName: 'localGroupsHomeFragment',
-    fetchPolicy: 'cache-and-network',
-    nextFetchPolicy: "cache-first",
-    limit: 300,
-    skip: userLocation.loading
-  });
-  
+
+  const {results, loading} = useSearch<localGroupsHomeFragment>(
+    "localgroups",
+    keywordSearch,
+    ["isOnline:false"],
+  );
+  console.log("results", results);
+
   const cloudinaryCloudName = cloudinaryCloudNameSetting.get()
   
   // filter the list of groups if the user has typed in a keyword

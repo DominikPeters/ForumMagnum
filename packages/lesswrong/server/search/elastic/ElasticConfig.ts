@@ -2,7 +2,6 @@ import type {
   MappingProperty,
   QueryDslQueryContainer,
 } from "@elastic/elasticsearch/lib/api/types";
-import { AlgoliaIndexCollectionName } from "../../../lib/search/algoliaUtil";
 import { postStatuses } from "../../../lib/collections/posts/constants";
 import { ElasticIndexCollectionName } from "./elasticCollections";
 
@@ -35,7 +34,7 @@ export type IndexConfig = {
   /**
    * The name of the field to create a match snippet from.
    */
-  snippet: string,
+  snippet?: string,
   /**
    * The name of the field to create a match highlight from.
    */
@@ -286,11 +285,17 @@ const elasticSearchConfig: Record<ElasticIndexCollectionName, IndexConfig> = {
     ],
   },
   Localgroups: {
-    fields: [],
-    snippet: "",
+    fields: [
+      "name^3",
+      "nameInAnotherLanguage^3",
+      "content",
+      "location",
+    ],
     ranking: [],
     tiebreaker: "publicDateMs",
-    filters: [],
+    filters: [
+      {term: {deleted: false}},
+    ],
     mappings: {
       organizerIds: {type: "keyword"},
       types: {type: "keyword"},
@@ -310,13 +315,14 @@ const elasticSearchConfig: Record<ElasticIndexCollectionName, IndexConfig> = {
   },
 };
 
-const indexToCollectionName = (index: string): AlgoliaIndexCollectionName => {
-  const data: Record<string, AlgoliaIndexCollectionName> = {
+const indexToCollectionName = (index: string): ElasticIndexCollectionName => {
+  const data: Record<string, ElasticIndexCollectionName> = {
     comments: "Comments",
     posts: "Posts",
     users: "Users",
     sequences: "Sequences",
     tags: "Tags",
+    localgroups: "Localgroups",
   };
   if (!data[index]) {
     throw new Error("Invalid index name: " + index);

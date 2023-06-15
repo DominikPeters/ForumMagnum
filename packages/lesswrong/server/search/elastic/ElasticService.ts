@@ -192,12 +192,14 @@ class ElasticService {
     return hits.map(({_id, _source, highlight}) => ({
       ..._source,
       _id,
-      _snippetResult: {
-        [config.snippet]: {
-          value: highlight?.[config.snippet]?.[0],
-          matchLevel: highlight?.[config.snippet]?.[0] ? "full" : "none",
+      ...(config.snippet && {
+        _snippetResult: {
+          [config.snippet]: {
+            value: highlight?.[config.snippet]?.[0],
+            matchLevel: highlight?.[config.snippet]?.[0] ? "full" : "none",
+          },
         },
-      },
+      }),
       ...(config.highlight && {
         _highlightResult: {
           [config.highlight]: {
