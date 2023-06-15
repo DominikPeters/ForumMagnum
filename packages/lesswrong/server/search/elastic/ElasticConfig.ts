@@ -4,6 +4,7 @@ import type {
 } from "@elastic/elasticsearch/lib/api/types";
 import { AlgoliaIndexCollectionName } from "../../../lib/search/algoliaUtil";
 import { postStatuses } from "../../../lib/collections/posts/constants";
+import { ElasticIndexCollectionName } from "./elasticCollections";
 
 export type Ranking = {
   field: string,
@@ -83,7 +84,7 @@ export type IndexConfig = {
   karmaField?: string,
 }
 
-const elasticSearchConfig: Record<AlgoliaIndexCollectionName, IndexConfig> = {
+const elasticSearchConfig: Record<ElasticIndexCollectionName, IndexConfig> = {
   Comments: {
     fields: [
       "body",
@@ -284,6 +285,29 @@ const elasticSearchConfig: Record<AlgoliaIndexCollectionName, IndexConfig> = {
       "deleted",
     ],
   },
+  Localgroups: {
+    fields: [],
+    snippet: "",
+    ranking: [],
+    tiebreaker: "publicDateMs",
+    filters: [],
+    mappings: {
+      organizerIds: {type: "keyword"},
+      types: {type: "keyword"},
+      categories: {type: "keyword"},
+      contactInfo: {type: "keyword"},
+      facebookLink: {type: "keyword"},
+      facebookPageLink: {type: "keyword"},
+      meetupLink: {type: "keyword"},
+      slackLink: {type: "keyword"},
+      website: {type: "keyword"},
+      bannerImageId: {type: "keyword"},
+      salesforceId: {type: "keyword"},
+    },
+    privateFields: [
+      "salesforceId",
+    ],
+  },
 };
 
 const indexToCollectionName = (index: string): AlgoliaIndexCollectionName => {
@@ -301,7 +325,7 @@ const indexToCollectionName = (index: string): AlgoliaIndexCollectionName => {
 }
 
 export const collectionNameToConfig = (
-  collectionName: AlgoliaIndexCollectionName,
+  collectionName: ElasticIndexCollectionName,
 ): IndexConfig => {
   const config = elasticSearchConfig[collectionName];
   if (!config) {

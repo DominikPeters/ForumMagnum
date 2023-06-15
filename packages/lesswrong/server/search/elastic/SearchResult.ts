@@ -1,4 +1,6 @@
-export type SearchResultHit = AlgoliaDocument;
+import type { LocalgroupSearchDocument } from "../../repos/LocalgroupsRepo";
+
+export type SearchResultHit = AlgoliaDocument | LocalgroupSearchDocument;
 
 /**
  * This is the schema of results that InstantSearch expects to receive from

@@ -3,15 +3,12 @@ import { htmlToText } from "html-to-text";
 import ElasticClient from "./ElasticClient";
 import { collectionNameToConfig, Mappings } from "./ElasticConfig";
 import {
-  AlgoliaIndexCollectionName,
-  algoliaIndexedCollectionNames,
-} from "../../../lib/search/algoliaUtil";
-import {
   AlgoliaIndexedCollection,
   AlgoliaIndexedDbObject,
 } from "../utils";
 import {
   CommentsRepo,
+  LocalgroupsRepo,
   PostsRepo,
   SequencesRepo,
   TagsRepo,
@@ -19,6 +16,7 @@ import {
 } from "../../repos";
 import { getCollection } from "../../../lib/vulcan-lib/getCollection";
 import Globals from "../../../lib/vulcan-lib/config";
+import { ElasticIndexCollectionName, elasticIndexedCollectionNames } from "./elasticCollections";
 
 const HTML_FIELDS = [
   "body",
@@ -35,13 +33,13 @@ class ElasticExporter {
   ) {}
 
   async configureIndexes() {
-    for (const collectionName of algoliaIndexedCollectionNames) {
+    for (const collectionName of elasticIndexedCollectionNames) {
       await this.configureIndex(collectionName);
     }
   }
 
   async exportAll() {
-    await Promise.all(algoliaIndexedCollectionNames.map(
+    await Promise.all(elasticIndexedCollectionNames.map(
       (collectionName) => this.exportCollection(collectionName),
     ));
   }
@@ -64,7 +62,7 @@ class ElasticExporter {
    *
    * For a populated index, expect this to take ~a couple of minutes.
    */
-  async configureIndex(collectionName: AlgoliaIndexCollectionName) {
+  async configureIndex(collectionName: ElasticIndexCollectionName) {
     const client = this.client.getClient();
     const collection = getCollection(collectionName) as
       AlgoliaIndexedCollection<AlgoliaIndexedDbObject>;
@@ -116,7 +114,7 @@ class ElasticExporter {
     }
   }
 
-  async deleteIndex(collectionName: AlgoliaIndexCollectionName) {
+  async deleteIndex(collectionName: ElasticIndexCollectionName) {
     const client = this.client.getClient();
     const collection = getCollection(collectionName) as
       AlgoliaIndexedCollection<AlgoliaIndexedDbObject>;
@@ -153,7 +151,7 @@ class ElasticExporter {
   }
 
   async updateDocument(
-    collectionName: AlgoliaIndexCollectionName,
+    collectionName: ElasticIndexCollectionName,
     documentId: string,
   ): Promise<void> {
     const index = collectionName.toLowerCase();
@@ -178,7 +176,7 @@ class ElasticExporter {
 
   private async createIndex(
     indexName: string,
-    collectionName: AlgoliaIndexCollectionName,
+    collectionName: ElasticIndexCollectionName,
   ): Promise<void> {
     const client = this.client.getClient();
     const mappings = this.getCollectionMappings(collectionName);
@@ -241,7 +239,7 @@ class ElasticExporter {
   }
 
   private getCollectionMappings(
-    collectionName: AlgoliaIndexCollectionName,
+    collectionName: ElasticIndexCollectionName,
   ): Mappings {
     const config = collectionNameToConfig(collectionName);
     const result: Mappings = {
@@ -252,7 +250,7 @@ class ElasticExporter {
     return result;
   }
 
-  private getRepoByCollectionName(collectionName: AlgoliaIndexCollectionName) {
+  private getRepoByCollectionName(collectionName: ElasticIndexCollectionName) {
     switch (collectionName) {
     case "Posts":
       return new PostsRepo();
@@ -264,12 +262,14 @@ class ElasticExporter {
       return new SequencesRepo();
     case "Tags":
       return new TagsRepo();
+    case "Localgroups":
+        return new LocalgroupsRepo();
     default:
       throw new Error("Can't find repo for collection " + collectionName);
     }
   }
 
-  async exportCollection(collectionName: AlgoliaIndexCollectionName) {
+  async exportCollection(collectionName: ElasticIndexCollectionName) {
     const collection = getCollection(collectionName) as
       AlgoliaIndexedCollection<AlgoliaIndexedDbObject>;
     const repo = this.getRepoByCollectionName(collectionName);
@@ -344,13 +344,13 @@ class ElasticExporter {
   }
 
   async updateSynonyms(synonyms: string[]): Promise<void> {
-    await Promise.all(algoliaIndexedCollectionNames.map(
+    await Promise.all(elasticIndexedCollectionNames.map(
       (collectionName) => this.updateSynonymsForCollection(collectionName, synonyms),
     ));
   }
 
   private async updateSynonymsForCollection(
-    collectionName: AlgoliaIndexCollectionName,
+    collectionName: ElasticIndexCollectionName,
     synonyms: string[],
   ) {
     const collection = getCollection(collectionName) as
@@ -383,19 +383,19 @@ class ElasticExporter {
   }
 }
 
-Globals.elasticConfigureIndex = (collectionName: AlgoliaIndexCollectionName) =>
+Globals.elasticConfigureIndex = (collectionName: ElasticIndexCollectionName) =>
   new ElasticExporter().configureIndex(collectionName);
 
 Globals.elasticConfigureIndexes = () =>
   new ElasticExporter().configureIndexes();
 
-Globals.elasticExportCollection = (collectionName: AlgoliaIndexCollectionName) =>
+Globals.elasticExportCollection = (collectionName: ElasticIndexCollectionName) =>
   new ElasticExporter().exportCollection(collectionName);
 
 Globals.elasticExportAll = () =>
   new ElasticExporter().exportAll();
 
-Globals.elasticDeleteIndex = (collectionName: AlgoliaIndexCollectionName) =>
+Globals.elasticDeleteIndex = (collectionName: ElasticIndexCollectionName) =>
   new ElasticExporter().deleteIndex(collectionName);
 
 export default ElasticExporter;
