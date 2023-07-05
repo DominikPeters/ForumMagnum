@@ -72,7 +72,7 @@ export const useSearch = <T>(
   useEffect(() => {
     setLoading(true);
     setError(null);
-    (async () => {
+    void (async () => {
       try {
         const searchClient = getSearchClient();
         const response = await searchClient.search([

@@ -9,7 +9,6 @@ import { legacyBreakpoints } from '../../lib/utils/theme';
 import { sectionFooterLeftStyles } from '../users/UsersProfile'
 import {AnalyticsContext} from "../../lib/analyticsEvents";
 import { nofollowKarmaThreshold } from '../../lib/publicSettings';
-import { isEAForum } from '../../lib/instanceSettings';
 
 export const sequencesImageScrim = (theme: ThemeType) => ({
   position: 'absolute',
@@ -30,9 +29,7 @@ const styles = (theme: ThemeType): JssStyles => ({
   title: {
     fontFamily: theme.typography.uiSecondary.fontFamily,
     marginTop: 0,
-    ...(isEAForum
-      ? {textTransform: "uppercase"}
-      : theme.typography.smallCaps),
+    ...theme.typography.smallCaps,
   },
   description: {
     marginTop: theme.spacing.unit * 2,
@@ -132,13 +129,13 @@ const SequencesPage = ({ documentId, classes }: {
   const canEdit = userCanDo(currentUser, 'sequences.edit.all') || (userCanDo(currentUser, 'sequences.edit.own') && userOwns(currentUser, document))
   const canCreateChapter = userCanDo(currentUser, 'chapters.new.all')
   const canEditChapter = userCanDo(currentUser, 'chapters.edit.all') || canEdit
-  const { html = "" } = document.contents || {}
+  const { html = "", plaintextDescription } = document.contents || {}
 
   if (!canEdit && document.draft)
     throw new Error('This sequence is a draft and is not publicly visible')
     
   return <div className={classes.root}>
-    <HeadTags canonicalUrl={sequenceGetPageUrl(document, true)} title={document.title}/>
+    <HeadTags canonicalUrl={sequenceGetPageUrl(document, true)} title={document.title} description={plaintextDescription || undefined}/>
     <div className={classes.banner}>
       <div className={classes.bannerWrapper}>
         <NoSSR>
