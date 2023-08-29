@@ -4,6 +4,8 @@ import { QueryLink } from '../../lib/reactRouterWrapper'
 import classNames from 'classnames'
 import * as _ from 'underscore';
 import Tooltip from '@material-ui/core/Tooltip';
+import { SettingsOption } from '../../lib/collections/posts/dropdownOptions';
+import { isEAForum } from '../../lib/instanceSettings';
 
 const styles = (theme: ThemeType): JssStyles => ({
   selectionList: {
@@ -18,7 +20,8 @@ const styles = (theme: ThemeType): JssStyles => ({
     '&&': {
       // Increase specifity to remove import-order conflict with MetaInfo
       display: "block",
-      fontStyle: "italic",
+      fontStyle: isEAForum ? undefined : "italic",
+      fontWeight: isEAForum ? undefined : 600,
       marginBottom: theme.spacing.unit/2
     },
   },
@@ -46,7 +49,17 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
 });
 
-const SettingsColumn = ({type, title, options, currentOption, classes, setSetting}) => {
+interface Props {
+  type: string;
+  title: string;
+  options: Partial<Record<string, SettingsOption>>;
+  currentOption: string;
+  classes: ClassesType;
+  setSetting: (type: string, newSetting: any) => void;
+  nofollow?: boolean;
+}
+
+const SettingsColumn = ({type, title, options, currentOption, classes, setSetting, nofollow}: Props) => {
   const { MetaInfo } = Components
 
   return <div className={classes.selectionList}>
@@ -55,6 +68,7 @@ const SettingsColumn = ({type, title, options, currentOption, classes, setSettin
     </MetaInfo>
     {Object.entries(options).map(([name, optionValue]: any) => {
       const label = _.isString(optionValue) ? optionValue : optionValue.label
+      const nofollowTag = nofollow ? { rel: 'nofollow' } : {};
       return (
         <QueryLink
           key={name}
@@ -62,6 +76,7 @@ const SettingsColumn = ({type, title, options, currentOption, classes, setSettin
           // TODO: Can the query have an ordering that matches the column ordering?
           query={{ [type]: name }}
           merge
+          {...nofollowTag}
         >
           <MetaInfo className={classNames(classes.menuItem, {[classes.selected]: currentOption === name})}>
             {optionValue.tooltip ?

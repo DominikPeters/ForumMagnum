@@ -16,7 +16,7 @@ import GraphQLJSON from 'graphql-type-json';
 // that was reversed.
 //
 
-const docIsTagRel = (currentUser, document) => {
+const docIsTagRel = (currentUser: DbUser|UsersCurrent|null, document: DbVote) => {
   // TagRel votes are treated as public
   return document?.collectionName === "TagRels"
 }
@@ -42,14 +42,25 @@ const schema: SchemaType<DbVote> = {
     canRead: [userOwns, docIsTagRel, 'admins'],
     foreignKey: 'Users',
   },
-  
-  // The ID of the author of the document that was voted on
-  authorId: {
-    type: String,
-    denormalized: true, // Can be inferred from documentId
+
+  // The IDs of the authors of the document that was voted on
+  authorIds: {
+    type: Array,
     canRead: ['guests'],
+  },
+  'authorIds.$': {
+    type: String,
     foreignKey: 'Users',
   },
+
+  // Resolver-only authorId for backwards compatability after migrating to allow
+  // co-authors to receive karma with authorIds
+  authorId: resolverOnlyField({
+    type: String,
+    graphQLtype: 'String',
+    canRead: ['guests'],
+    resolver: (vote: DbVote): string => vote.authorIds[0],
+  }),
 
   // The type of vote, eg smallDownvote, bigUpvote. If this is an unvote, then
   // voteType is the type of the vote that was reversed.
@@ -108,7 +119,7 @@ const schema: SchemaType<DbVote> = {
     ...schemaDefaultValue(false),
   },
   
-  // Whether this is an unvote.
+  // Whether this is an unvote. This data is unreliable on the EA Forum for old votes (around 2019).
   isUnvote: {
     type: Boolean,
     canRead: ['guests'],
@@ -130,6 +141,32 @@ const schema: SchemaType<DbVote> = {
     resolver: async (vote: DbVote, args: void, { TagRels }: ResolverContext): Promise<DbTagRel|null> => {
       if (vote.collectionName === "TagRels") {
         return await TagRels.findOne({_id: vote.documentId});
+      } else {
+        return null;
+      }
+    }
+  }),
+
+  comment: resolverOnlyField({
+    type: "Comment",
+    graphQLtype: 'Comment',
+    canRead: ['guests'],
+    resolver: async (vote: DbVote, args: void, context: ResolverContext): Promise<DbComment|null> => {
+      if (vote.collectionName === "Comments") {
+        return await context.loaders.Comments.load(vote.documentId);
+      } else {
+        return null;
+      }
+    }
+  }),
+
+  post: resolverOnlyField({
+    type: "Post",
+    graphQLtype: 'Post',
+    canRead: ['guests'],
+    resolver: async (vote: DbVote, args: void, context: ResolverContext): Promise<DbPost|null> => {
+      if (vote.collectionName === "Posts") {
+        return await context.loaders.Posts.load(vote.documentId);
       } else {
         return null;
       }

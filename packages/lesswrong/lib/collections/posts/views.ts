@@ -1,18 +1,22 @@
 import moment from 'moment';
-import * as _ from 'underscore';
-import { combineIndexWithDefaultViewIndex, ensureIndex } from '../../collectionUtils';
-import type { FilterMode, FilterSettings } from '../../filterSettings';
-import { forumTypeSetting } from '../../instanceSettings';
-import { getReviewPhase } from '../../reviewUtils';
-import { defaultScoreModifiers, timeDecayExpr } from '../../scoring';
+import { getKarmaInflationSeries, timeSeriesIndexExpr } from './karmaInflation';
+import { combineIndexWithDefaultViewIndex, ensureIndex, ensureCustomPgIndex } from '../../collectionIndexUtils';
+import type { FilterMode, FilterSettings, FilterTag } from '../../filterSettings';
+import { forumTypeSetting, isEAForum } from '../../instanceSettings';
+import { defaultVisibilityTags } from '../../publicSettings';
+import { frontpageTimeDecayExpr, postScoreModifiers, timeDecayExpr } from '../../scoring';
 import { viewFieldAllowAny, viewFieldNullOrMissing } from '../../vulcan-lib';
 import { Posts } from './collection';
-import { postStatuses } from './constants';
+import { postStatuses, startHerePostIdSetting } from './constants';
+import uniq from 'lodash/uniq';
+import { INITIAL_REVIEW_THRESHOLD, getPositiveVoteThreshold, QUICK_REVIEW_SCORE_THRESHOLD, ReviewPhase, REVIEW_AND_VOTING_PHASE_VOTECOUNT_THRESHOLD, VOTING_PHASE_REVIEW_THRESHOLD } from '../../reviewUtils';
+import { jsonArrayContainsSelector } from '../../utils/viewUtils';
+import { EA_FORUM_COMMUNITY_TOPIC_ID } from '../tags/collection';
+import { filter, isEmpty, pick } from 'underscore';
 
 export const DEFAULT_LOW_KARMA_THRESHOLD = -10
 export const MAX_LOW_KARMA_THRESHOLD = -1000
 
-const isEAForum = forumTypeSetting.get() === 'EAForum'
 const eventBuffer = isEAForum ? {startBuffer: '1 hour', endBuffer: null} : {startBuffer: '6 hours', endBuffer: '3 hours'}
 
 type ReviewSortings = "fewestReviews"|"mostReviews"|"lastCommentedAt"
@@ -29,19 +33,21 @@ declare global {
     filterSettings?: any,
     sortBy?: ReviewSortings,
     sortByMost?: boolean,
-    sortedBy?: string,
+    sortedBy?: PostSortingModeWithRelevanceOption,
     af?: boolean,
     excludeEvents?: boolean,
     onlineEvent?: boolean,
     globalEvent?: boolean,
+    eventType?: Array<string>,
     groupId?: string,
     lat?: number,
     lng?: number,
     slug?: string,
-    sortDrafts?: string,
+    sortDraftsBy?: string,
     forum?: boolean,
     question?: boolean,
     tagId?: string,
+    subforumTagId?: string,
     legacyId?: string,
     postId?: string,
     authorIsUnreviewed?: boolean|null,
@@ -50,8 +56,26 @@ declare global {
     timeField?: keyof DbPost,
     postIds?: Array<string>,
     reviewYear?: number,
+    reviewPhase?: ReviewPhase,
     excludeContents?: boolean,
+    includeArchived?: boolean,
+    includeDraftEvents?: boolean,
+    includeShared?: boolean,
+    hideCommunity?: boolean,
+    distance?: number,
+    audioOnly?: boolean,
+    // BEGIN overrides for parameters in the frontpageTimeDecayExpr
+    algoStartingAgeHours?: number
+    algoDecayFactorSlowest?: number
+    algoDecayFactorFastest?: number
+    /** Will be used in favour of activityHalfLifeHours and activityWeight if provided */
+    algoActivityFactor?: number
+    algoActivityHalfLifeHours?: number
+    algoActivityWeight?: number
+    // END
   }
+  type PostSortingMode = "magic"|"top"|"topAdjusted"|"new"|"old"|"recentComments"
+  type PostSortingModeWithRelevanceOption = PostSortingMode|"relevance"
 }
 
 /**
@@ -88,9 +112,6 @@ export const filters: Record<string,any> = {
   "events": {
     isEvent: true,
     groupId: null
-  },
-  "meta": {
-    meta: true
   },
   "untagged": {
     tagRelevance: {}
@@ -129,12 +150,13 @@ export const filters: Record<string,any> = {
  * NB: Vulcan views overwrite sortings. If you are using a named view with a
  * sorting, do not try to supply your own.
  */
-export const sortings = {
-  magic: {score: -1},
-  top: {baseScore: -1},
-  new: {postedAt: -1},
-  old: {postedAt: 1},
-  recentComments: {lastCommentedAt: -1}
+export const sortings: Record<PostSortingMode,MongoSelector<DbPost>> = {
+  magic: { score: -1 },
+  top: { baseScore: -1 },
+  topAdjusted: { karmaInflationAdjustedScore: -1 },
+  new: { postedAt: -1 },
+  old: { postedAt: 1 },
+  recentComments: { lastCommentedAt: -1 }
 }
 
 /**
@@ -144,10 +166,15 @@ export const sortings = {
  * as it is *inclusive*. The parameters callback that handles it outputs
  * ~ $lt: before.endOf('day').
  */
-Posts.addDefaultView((terms: PostsViewTerms) => {
-  const validFields: any = _.pick(terms, 'userId', 'meta', 'groupId', 'af','question', 'authorIsUnreviewed');
+Posts.addDefaultView((terms: PostsViewTerms, _, context: ResolverContext) => {
+  const validFields: any = pick(terms, 'userId', 'groupId', 'af','question', 'authorIsUnreviewed');
   // Also valid fields: before, after, timeField (select on postedAt), excludeEvents, and
   // karmaThreshold (selects on baseScore).
+
+  const postCommentedExcludeCommunity = {$or: [
+    {[`tagRelevance.${EA_FORUM_COMMUNITY_TOPIC_ID}`]: {$lt: 1}},
+    {[`tagRelevance.${EA_FORUM_COMMUNITY_TOPIC_ID}`]: {$exists: false}},
+  ]}
 
   const alignmentForum = forumTypeSetting.get() === 'AlignmentForum' ? {af: true} : {}
   let params: any = {
@@ -158,8 +185,10 @@ Posts.addDefaultView((terms: PostsViewTerms) => {
       unlisted: false,
       shortform: false,
       authorIsUnreviewed: false,
+      rejected: { $ne: true },
       hiddenRelatedQuestion: false,
       groupId: viewFieldNullOrMissing,
+      ...(terms.hideCommunity ? postCommentedExcludeCommunity : {}),
       ...validFields,
       ...alignmentForum
     },
@@ -193,16 +222,20 @@ Posts.addDefaultView((terms: PostsViewTerms) => {
     }
   }
   if (terms.filterSettings) {
-    const filterParams = filterSettingsToParams(terms.filterSettings);
+    const filterParams = filterSettingsToParams(terms.filterSettings, terms, context);
     params = {
       selector: { ...params.selector, ...filterParams.selector },
       options: { ...params.options, ...filterParams.options },
-      syntheticFields: { ...params.synetheticFields, ...filterParams.syntheticFields },
+      syntheticFields: { ...params.syntheticFields, ...filterParams.syntheticFields },
     };
   }
   if (terms.sortedBy) {
-    if (sortings[terms.sortedBy]) {
-      params.options = {sort: {...params.options.sort, ...sortings[terms.sortedBy]}}
+    if (terms.sortedBy === 'topAdjusted') {
+      params.syntheticFields = { ...params.syntheticFields, ...buildInflationAdjustedField() }
+    }
+
+    if ((sortings as AnyBecauseTodo)[terms.sortedBy]) {
+      params.options = {sort: {...params.options.sort, ...(sortings as AnyBecauseTodo)[terms.sortedBy]}}
     } else {
       // eslint-disable-next-line no-console
       console.warn(
@@ -222,9 +255,9 @@ Posts.addDefaultView((terms: PostsViewTerms) => {
       postedAt.$lt = moment(terms.before).toDate();
     }
 
-    if (!_.isEmpty(postedAt) && !terms.timeField) {
+    if (!isEmpty(postedAt) && !terms.timeField) {
       params.selector.postedAt = postedAt;
-    } else if (!_.isEmpty(postedAt) && terms.timeField) {
+    } else if (!isEmpty(postedAt) && terms.timeField) {
       params.selector[terms.timeField] = postedAt;
     }
   }
@@ -244,7 +277,7 @@ const getFrontpageFilter = (filterSettings: FilterSettings): {filter: any, softF
       softFilter: []
     }
   } else {
-    const personalBonus = filterModeToKarmaModifier(filterSettings.personalBlog)
+    const personalBonus = filterModeToAdditiveKarmaModifier(filterSettings.personalBlog)
     return {
       filter: {},
       softFilter: personalBonus ? [
@@ -260,73 +293,134 @@ const getFrontpageFilter = (filterSettings: FilterSettings): {filter: any, softF
   }
 }
 
-function filterSettingsToParams(filterSettings: FilterSettings): any {
-  const tagsRequired = _.filter(filterSettings.tags, t=>t.filterMode==="Required");
-  const tagsExcluded = _.filter(filterSettings.tags, t=>t.filterMode==="Hidden");
+export function buildInflationAdjustedField(): any {
+  const karmaInflationSeries = getKarmaInflationSeries();
+  return {
+    karmaInflationAdjustedScore: {
+      $multiply: [
+        "$baseScore",
+        {
+          $ifNull: [
+            {
+              $arrayElemAt: [
+                karmaInflationSeries.values,
+                {
+                  $max: [
+                    timeSeriesIndexExpr("$postedAt", karmaInflationSeries.start, karmaInflationSeries.interval),
+                    0 // fall back to first value if out of range
+                  ]
+                }]
+            },
+            karmaInflationSeries.values[karmaInflationSeries.values.length - 1] // fall back to final value if out of range
+          ]
+        }
+      ]
+    }
+  }
+}
+
+function filterSettingsToParams(filterSettings: FilterSettings, terms: PostsViewTerms, context: ResolverContext): any {
+  // We get the default tag relevance from the database config
+  const tagFilterSettingsWithDefaults: FilterTag[] = filterSettings.tags.map(t =>
+    t.filterMode === "TagDefault" ? {
+      tagId: t.tagId,
+      tagName: t.tagName,
+      filterMode: defaultVisibilityTags.get().find(dft => dft.tagId === t.tagId)?.filterMode || 'Default',
+    } :
+    t
+  )
+  const tagsRequired = filter(tagFilterSettingsWithDefaults, t=>t.filterMode==="Required");
+  const tagsExcluded = filter(tagFilterSettingsWithDefaults, t=>t.filterMode==="Hidden");
   
   const frontpageFiltering = getFrontpageFilter(filterSettings)
   
   const {filter: frontpageFilter, softFilter: frontpageSoftFilter} = frontpageFiltering
   let tagsFilter = {};
+  const tagFilters: any[] = [];
   for (let tag of tagsRequired) {
-    tagsFilter[`tagRelevance.${tag.tagId}`] = {$gte: 1};
+    tagFilters.push({[`tagRelevance.${tag.tagId}`]: {$gte: 1}});
   }
   for (let tag of tagsExcluded) {
-    tagsFilter[`tagRelevance.${tag.tagId}`] = {$not: {$gte: 1}};
+    tagFilters.push({$or: [
+      {[`tagRelevance.${tag.tagId}`]: {$lt: 1}},
+      {[`tagRelevance.${tag.tagId}`]: {$exists: false}},
+    ]});
   }
   
-  const tagsSoftFiltered = _.filter(filterSettings.tags, t => (t.filterMode!=="Hidden" && t.filterMode!=="Required" && t.filterMode!=="Default" && t.filterMode!==0));
-  let scoreExpr: any = null;
-  if (tagsSoftFiltered.length > 0 || frontpageSoftFilter.length > 0) {
-    scoreExpr = {
-      syntheticFields: {
-        score: {$divide:[
-          {$add:[
-            "$baseScore",
-            ...tagsSoftFiltered.map(t => ({
-              $multiply: [
-                filterModeToKarmaModifier(t.filterMode),
-                {$ifNull: [
-                  "$tagRelevance."+t.tagId,
-                  0
-                ]}
-              ]
-            })),
-            ...defaultScoreModifiers(),
-            ...frontpageSoftFilter,
-          ]},
-          timeDecayExpr()
-        ]}
-      },
-    };
+  const tagsSoftFiltered = tagFilterSettingsWithDefaults.filter(
+    t => (t.filterMode!=="Hidden" && t.filterMode!=="Required" && t.filterMode!=="Default" && t.filterMode!==0)
+  );
+
+  const useSlowerFrontpage = !!context.currentUser && isEAForum
+
+  const syntheticFields = {
+    score: {$divide:[
+      {$multiply: [
+        {$add:[
+          "$baseScore",
+          ...tagsSoftFiltered.map(t => (
+            {$cond: {
+              if: {$gt: ["$tagRelevance."+t.tagId, 0]},
+              then: filterModeToAdditiveKarmaModifier(t.filterMode),
+              else: 0
+            }}
+          )),
+          ...postScoreModifiers(),
+          ...frontpageSoftFilter,
+        ]},
+        ...tagsSoftFiltered.map(t => (
+          {$cond: {
+            if: {$gt: ["$tagRelevance."+t.tagId, 0]},
+            then: filterModeToMultiplicativeKarmaModifier(t.filterMode),
+            else: 1
+          }}
+        )),
+      ]},
+      useSlowerFrontpage ? frontpageTimeDecayExpr({
+        startingAgeHours: terms.algoStartingAgeHours,
+        decayFactorSlowest: terms.algoDecayFactorSlowest,
+        decayFactorFastest: terms.algoDecayFactorFastest,
+        activityHalfLifeHours: terms.algoActivityHalfLifeHours,
+        activityWeight: terms.algoActivityWeight,
+        overrideActivityFactor: terms.algoActivityFactor,
+      }, context) : timeDecayExpr()
+    ]}
   }
   
   return {
     selector: {
       ...frontpageFilter,
-      ...tagsFilter
+      ...(tagFilters.length ? {$and: tagFilters} : {}),
     },
-    ...scoreExpr,
+    syntheticFields,
   };
 }
 
-function filterModeToKarmaModifier(mode: FilterMode): number {
-  if (typeof mode === "number") {
+function filterModeToAdditiveKarmaModifier(mode: FilterMode): number {
+  if (typeof mode === "number" && (mode <= 0 || 1 <= mode)) {
     return mode;
   } else switch(mode) {
     default:
     case "Default": return 0;
-    case "Hidden": return -100;
-    case "Required": return 100;
+    case "Subscribed": return 25;
   }
 }
 
+function filterModeToMultiplicativeKarmaModifier(mode: FilterMode): number {
+  if (typeof mode === "number" && 0 < mode && mode < 1) {
+    return mode;
+  } else switch(mode) {
+    default:
+    case "Default": return 1;
+    case "Reduced": return 0.5;
+  }
+}
 
-export function augmentForDefaultView(indexFields)
+export function augmentForDefaultView(indexFields: MongoIndexKeyObj<DbPost>)
 {
   return combineIndexWithDefaultViewIndex({
     viewFields: indexFields,
-    prefix: {status:1, isFuture:1, draft:1, unlisted:1, shortform: 1, hiddenRelatedQuestion:1, authorIsUnreviewed:1, groupId:1 },
+    prefix: {status:1, isFuture:1, draft:1, unlisted:1, shortform: 1, hiddenRelatedQuestion:1, authorIsUnreviewed:1, groupId:1},
     suffix: { _id:1, meta:1, isEvent:1, af:1, frontpageDate:1, curatedDate:1, postedAt:1, baseScore:1 },
   });
 }
@@ -344,7 +438,8 @@ Posts.addView("userPosts", (terms: PostsViewTerms) => {
       hiddenRelatedQuestion: viewFieldAllowAny,
       shortform: viewFieldAllowAny,
       groupId: null, // TODO: fix vulcan so it doesn't do deep merges on viewFieldAllowAny
-      $or: [{userId: terms.userId}, {coauthorUserIds: terms.userId}],
+      $or: [{userId: terms.userId}, {"coauthorStatuses.userId": terms.userId}],
+      rejected: null
     },
     options: {
       limit: 5,
@@ -352,20 +447,21 @@ Posts.addView("userPosts", (terms: PostsViewTerms) => {
     }
   }
 });
+// This index is currently unused on LW.
+// ensureIndex(Posts,
+//   augmentForDefaultView({ userId: 1, hideAuthor: 1, postedAt: -1, }),
+//   {
+//     name: "posts.userId_postedAt",
+//   }
+// );
 ensureIndex(Posts,
-  augmentForDefaultView({ userId: 1, hideAuthor: 1, postedAt: -1, }),
+  augmentForDefaultView({ 'coauthorStatuses.userId': 1, userId: 1, postedAt: -1 }),
   {
-    name: "posts.userId_postedAt",
-  }
-);
-ensureIndex(Posts,
-  augmentForDefaultView({ coauthorUserIds: 1, postedAt: -1, }),
-  {
-    name: "posts.coauthorUserIds_postedAt",
+    name: "posts.coauthorStatuses_postedAt",
   }
 );
 
-const setStickies = (sortOptions, terms: PostsViewTerms) => {
+const setStickies = (sortOptions: MongoSort<DbPost>, terms: PostsViewTerms): MongoSort<DbPost> => {
   if (terms.af && terms.forum) {
     return { afSticky: -1, stickyPriority: -1, ...sortOptions}
   } else if (terms.meta && terms.forum) {
@@ -382,7 +478,13 @@ const stickiesIndexPrefix = {
 
 
 Posts.addView("magic", (terms: PostsViewTerms) => {
-  const selector = forumTypeSetting.get() === 'EAForum' ? filters.nonSticky : { isEvent: false };
+  let selector = { isEvent: false };
+  if (isEAForum) {
+    selector = {
+      ...selector,
+      ...filters.nonSticky,
+    };
+  }
   return {
     selector,
     options: {sort: setStickies(sortings.magic, terms)},
@@ -398,64 +500,53 @@ ensureIndex(Posts,
 
 // Wildcard index on tagRelevance, enables us to efficiently filter on tagRel scores
 ensureIndex(Posts,{ "tagRelevance.$**" : 1 } )
-// Used for the latest posts list when soft-filtering tags
-ensureIndex(Posts,
-  augmentForDefaultView({ tagRelevance: 1 }),
-  {
-    name: "posts.tagRelevance"
-  }
-);
-ensureIndex(Posts,
-  augmentForDefaultView({ afSticky:-1, score:-1 }),
-  {
-    name: "posts.afSticky_score",
-  }
-);
-ensureIndex(Posts,
-  augmentForDefaultView({ metaSticky:-1, score:-1 }),
-  {
-    name: "posts.metaSticky_score",
-  }
-);
-ensureIndex(Posts,
-  augmentForDefaultView({ userId: 1, hideAuthor: 1, ...stickiesIndexPrefix, score:-1 }),
-  {
-    name: "posts.userId_stickies_score",
-  }
-);
+// This index doesn't appear used, but seems like it should be.
+// ensureIndex(Posts,
+//   augmentForDefaultView({ afSticky:-1, score:-1 }),
+//   {
+//     name: "posts.afSticky_score",
+//   }
+// );
 
 
 Posts.addView("top", (terms: PostsViewTerms) => ({
   options: {sort: setStickies(sortings.top, terms)}
 }))
+// unused on LW. If EA forum is also not using we can delete.
+// ensureIndex(Posts,
+//   augmentForDefaultView({ ...stickiesIndexPrefix, baseScore:-1 }),
+//   {
+//     name: "posts.stickies_baseScore",
+//   }
+// );
+// ensureIndex(Posts,
+//   augmentForDefaultView({ userId: 1, hideAuthor: 1, ...stickiesIndexPrefix, baseScore:-1 }),
+//   {
+//     name: "posts.userId_stickies_baseScore",
+//   }
+// );
+
+// Used by "topAdjusted" sort
 ensureIndex(Posts,
-  augmentForDefaultView({ ...stickiesIndexPrefix, baseScore:-1 }),
+  augmentForDefaultView({ postedAt: 1, baseScore: 1, maxBaseScore: 1 }),
   {
-    name: "posts.stickies_baseScore",
-  }
-);
-ensureIndex(Posts,
-  augmentForDefaultView({ userId: 1, hideAuthor: 1, ...stickiesIndexPrefix, baseScore:-1 }),
-  {
-    name: "posts.userId_stickies_baseScore",
+    name: "posts.sort_by_topAdjusted",
+    partialFilterExpression: {
+      status: postStatuses.STATUS_APPROVED,
+      draft: false,
+      unlisted: false,
+      isFuture: false,
+      shortform: false,
+      authorIsUnreviewed: false,
+      hiddenRelatedQuestion: false,
+      isEvent: false,
+    },
   }
 );
 
 Posts.addView("new", (terms: PostsViewTerms) => ({
   options: {sort: setStickies(sortings.new, terms)}
 }))
-ensureIndex(Posts,
-  augmentForDefaultView({ ...stickiesIndexPrefix, postedAt:-1 }),
-  {
-    name: "posts.stickies_postedAt",
-  }
-);
-ensureIndex(Posts,
-  augmentForDefaultView({ userId: 1, hideAuthor: 1, ...stickiesIndexPrefix, postedAt:-1 }),
-  {
-    name: "posts.userId_stickies_postedAt",
-  }
-);
 
 Posts.addView("recentComments", (terms: PostsViewTerms) => ({
   options: {sort: sortings.recentComments}
@@ -488,11 +579,13 @@ ensureIndex(Posts,
   }
 );
 
-Posts.addView("tagRelevance", (terms: PostsViewTerms) => ({
+Posts.addView("tagRelevance", ({ sortedBy, tagId }: PostsViewTerms) => ({
   // note: this relies on the selector filtering done in the default view
   // sorts by the "sortedBy" parameter if it's been passed in, or otherwise sorts by tag relevance
   options: {
-    sort: terms.sortedBy ? sortings[terms.sortedBy] : { [`tagRelevance.${terms.tagId}`]: -1, baseScore: -1}
+    sort: sortedBy && sortedBy !== "relevance"
+      ? sortings[sortedBy]
+      : { [`tagRelevance.${tagId}`]: -1, baseScore: -1 },
   }
 }));
 
@@ -557,6 +650,7 @@ ensureIndex(Posts,
     name: "posts.community",
   }
 );
+
 
 Posts.addView("community-rss", (terms: PostsViewTerms) => ({
   selector: {
@@ -626,30 +720,70 @@ Posts.addView("scheduled", (terms: PostsViewTerms) => ({
 }));
 // Covered by the same index as `new`
 
+Posts.addView("rejected", (terms: PostsViewTerms) => ({
+  selector: {
+    rejected: true,
+    authorIsUnreviewed: null
+  },
+  options: {
+    sort: {postedAt: -1}
+  }
+}));
+ensureIndex(Posts, augmentForDefaultView({ rejected: -1, authorIsUnreviewed:1, postedAt: -1 }));
 
 /**
  * @summary Draft view
  */
 Posts.addView("drafts", (terms: PostsViewTerms) => {
-  let query = {
+  let query: any = {
     selector: {
       userId: viewFieldAllowAny,
-      $or: [{userId: terms.userId}, {shareWithUsers: terms.userId}],
+      $or: [
+        {userId: terms.userId},
+        {shareWithUsers: terms.userId},
+        {"coauthorStatuses.userId": terms.userId},
+      ],
       draft: true,
-      deletedDraft: false,
       hideAuthor: false,
       unlisted: null,
       groupId: null, // TODO: fix vulcan so it doesn't do deep merges on viewFieldAllowAny
       authorIsUnreviewed: viewFieldAllowAny,
       hiddenRelatedQuestion: viewFieldAllowAny,
+      deletedDraft: false,
     },
     options: {
       sort: {}
     }
   }
-  switch (terms.sortDrafts) {
-    case 'wordCount': {
-      query.options.sort = {wordCount: -1, modifiedAt: -1, createdAt: -1}
+  
+  if (terms.includeDraftEvents) {
+    query.selector.isEvent = viewFieldAllowAny
+  }
+  if (terms.includeArchived) {
+    query.selector.deletedDraft = viewFieldAllowAny
+  }
+  if (!terms.includeShared) {
+    query.selector.userId = terms.userId
+  }
+  if (terms.userId) {
+    query.selector.hideAuthor = false
+  }
+  
+  switch (terms.sortDraftsBy) {
+    case 'wordCountAscending': {
+      query.options.sort = {"contents.wordCount": 1, modifiedAt: -1, createdAt: -1}
+      break
+    }
+    case 'wordCountDescending': {
+      query.options.sort = {"contents.wordCount": -1, modifiedAt: -1, createdAt: -1}
+      break
+    }
+    case 'lastModified': {
+      query.options.sort = {modifiedAt: -1, createdAt: -1}
+      break
+    }
+    case 'newest': {
+      query.options.sort = {createdAt: -1, modifiedAt: -1}
       break
     }
     default: {
@@ -659,10 +793,11 @@ Posts.addView("drafts", (terms: PostsViewTerms) => {
   return query
 });
 
-ensureIndex(Posts,
-  augmentForDefaultView({ wordCount: 1, userId: 1, hideAuthor: 1, deletedDraft: 1, modifiedAt: -1, createdAt: -1 }),
-  { name: "posts.userId_wordCount" }
-);
+// not currently used, but seems like it should be?
+// ensureIndex(Posts,
+//   augmentForDefaultView({ wordCount: 1, userId: 1, hideAuthor: 1, deletedDraft: 1, modifiedAt: -1, createdAt: -1 }),
+//   { name: "posts.userId_wordCount" }
+// );
 ensureIndex(Posts,
   augmentForDefaultView({ userId: 1, hideAuthor: 1, deletedDraft: 1, modifiedAt: -1, createdAt: -1 }),
   { name: "posts.userId_createdAt" }
@@ -724,7 +859,8 @@ Posts.addView("legacyIdPost", (terms: PostsViewTerms) => {
   if (isNaN(legacyId)) throw new Error("Invalid view argument: legacyId must be base36, was "+terms.legacyId);
   return {
     selector: {
-      legacyId: ""+legacyId
+      legacyId: ""+legacyId,
+      af: viewFieldAllowAny,
     },
     options: {
       limit: 1
@@ -735,25 +871,24 @@ ensureIndex(Posts, {legacyId: "hashed"});
 
 
 // Corresponds to the postCommented subquery in recentDiscussionFeed.ts
-ensureIndex(Posts,
-  {
-    status: 1,
-    isFuture: 1,
-    draft: 1,
-    unlisted: 1,
-    authorIsUnreviewed: 1,
-    hideFrontpageComments: 1,
-    
-    lastCommentedAt: -1,
-    _id: 1,
-    
-    baseScore: 1,
-    af: 1,
-    isEvent: 1,
-    globalEvent: 1,
-    commentCount: 1,
-  },
-);
+const postCommentedViewFields = {
+  status: 1,
+  isFuture: 1,
+  draft: 1,
+  unlisted: 1,
+  authorIsUnreviewed: 1,
+  hideFrontpageComments: 1,
+  
+  lastCommentedAt: -1,
+  _id: 1,
+  
+  baseScore: 1,
+  af: 1,
+  isEvent: 1,
+  globalEvent: 1,
+  commentCount: 1,
+}
+ensureIndex(Posts, postCommentedViewFields);
 
 const recentDiscussionFilter = {
   baseScore: {$gt:0},
@@ -789,10 +924,11 @@ Posts.addView("afRecentDiscussionThreadsList", (terms: PostsViewTerms) => {
     }
   }
 })
-ensureIndex(Posts,
-  augmentForDefaultView({ hideFrontpageComments:1, afLastCommentedAt:-1, baseScore:1 }),
-  { name: "posts.afRecentDiscussionThreadsList", }
-);
+// this index appears unused
+// ensureIndex(Posts,
+//   augmentForDefaultView({ hideFrontpageComments:1, afLastCommentedAt:-1, baseScore:1 }),
+//   { name: "posts.afRecentDiscussionThreadsList", }
+// );
 
 Posts.addView("2018reviewRecentDiscussionThreadsList", (terms: PostsViewTerms) => {
   return {
@@ -806,10 +942,10 @@ Posts.addView("2018reviewRecentDiscussionThreadsList", (terms: PostsViewTerms) =
     }
   }
 })
-ensureIndex(Posts,
-  augmentForDefaultView({ nominationCount2018: 1, lastCommentedAt:-1, baseScore:1, hideFrontpageComments:1 }),
-  { name: "posts.2018reviewRecentDiscussionThreadsList", }
-);
+// ensureIndex(Posts,
+//   augmentForDefaultView({ nominationCount2018: 1, lastCommentedAt:-1, baseScore:1, hideFrontpageComments:1 }),
+//   { name: "posts.2018reviewRecentDiscussionThreadsList", }
+// );
 
 Posts.addView("2019reviewRecentDiscussionThreadsList", (terms: PostsViewTerms) => {
   return {
@@ -823,55 +959,51 @@ Posts.addView("2019reviewRecentDiscussionThreadsList", (terms: PostsViewTerms) =
     }
   }
 })
-ensureIndex(Posts,
-  augmentForDefaultView({ nominationCount2019: 1, lastCommentedAt:-1, baseScore:1, hideFrontpageComments:1 }),
-  { name: "posts.2019reviewRecentDiscussionThreadsList", }
-);
-
-Posts.addView("shortformDiscussionThreadsList", (terms: PostsViewTerms) => {
-  return {
-    selector: {
-      baseScore: {$gt:0},
-      hideFrontpageComments: false,
-      shortform: true,
-      hiddenRelatedQuestion: viewFieldAllowAny,
-      groupId: null,
-    },
-    options: {
-      sort: {lastCommentedAt:-1},
-      limit: terms.limit || 12,
-    }
-  }
-})
-ensureIndex(Posts,
-  augmentForDefaultView({ hideFrontpageComments:1, shortForm: 1, lastCommentedAt:-1, baseScore:1,}),
-  { name: "posts.shortformDiscussionThreadsList", }
-);
+// ensureIndex(Posts,
+//   augmentForDefaultView({ nominationCount2019: 1, lastCommentedAt:-1, baseScore:1, hideFrontpageComments:1 }),
+//   { name: "posts.2019reviewRecentDiscussionThreadsList", }
+// );
 
 Posts.addView("globalEvents", (terms: PostsViewTerms) => {
   const timeSelector = {$or: [
     {startTime: {$gt: moment().subtract(eventBuffer.startBuffer).toDate()}},
     {endTime: {$gt: moment().subtract(eventBuffer.endBuffer).toDate()}}
   ]}
+  
+  let onlineEventSelector: {} = terms.onlineEvent ? {onlineEvent: true} : {}
+  if (terms.onlineEvent === false) {
+    onlineEventSelector = {$or: [
+      {onlineEvent: false}, {onlineEvent: {$exists: false}}
+    ]}
+  }
+  
   let query = {
     selector: {
-      globalEvent: true,
+      $or: [
+        {globalEvent: true},
+        {$and: [
+          {onlineEvent: true},
+          {mongoLocation: {$exists: false}},
+        ]},
+      ],
       isEvent: true,
       groupId: null,
-      ...timeSelector,
+      eventType: terms.eventType ? {$in: terms.eventType} : null,
+      $and: [
+        timeSelector, onlineEventSelector
+      ],
     },
     options: {
       sort: {
         startTime: 1,
-        createdAt: null,
-        _id: null
+        _id: 1
       }
     }
   }
   return query
 })
 ensureIndex(Posts,
-  augmentForDefaultView({ globalEvent:1, startTime:1 }),
+  augmentForDefaultView({ globalEvent:1, eventType:1, startTime:1, endTime:1 }),
   { name: "posts.globalEvents" }
 );
 
@@ -880,37 +1012,52 @@ Posts.addView("nearbyEvents", (terms: PostsViewTerms) => {
     {startTime: {$gt: moment().subtract(eventBuffer.startBuffer).toDate()}},
     {endTime: {$gt: moment().subtract(eventBuffer.endBuffer).toDate()}}
   ]}
-  // make sure that, by default, events are not global
-  let globalEventSelector: {} = terms.globalEvent ? {globalEvent: true} : {};
-  if (terms.globalEvent === false) {
-    globalEventSelector = {$or: [
-      {globalEvent: false}, {globalEvent: {$exists: false}}
+  
+  let onlineEventSelector: {} = terms.onlineEvent ? {onlineEvent: true} : {}
+  if (terms.onlineEvent === false) {
+    onlineEventSelector = {$or: [
+      {onlineEvent: false}, {onlineEvent: {$exists: false}}
     ]}
   }
-
+  
+  // Note: distance is in miles
   let query: any = {
     selector: {
-      location: {$exists: true},
       groupId: null,
       isEvent: true,
+      eventType: terms.eventType ? {$in: terms.eventType} : null,
       $and: [
-        timeSelector, globalEventSelector
+        timeSelector, onlineEventSelector
       ],
-      mongoLocation: {
-        $near: {
-          $geometry: {
-               type: "Point" ,
-               coordinates: [ terms.lng, terms.lat ]
-          },
-          $maxDistance: 240000 // only show in-person events within 150 miles
+      $or: [
+        {
+          mongoLocation: {
+            $geoWithin: {
+              // $centerSphere takes an array containing the grid coordinates of the circle's center
+              // point and the circle's radius measured in radians. We convert the maximum distance
+              // (which is specified in miles, with a default of 100) into radians by dividing by the
+              // approximate equitorial radius of the earth, 3963.2 miles.
+              // When converting this to Postgres, we actually want the location in the form of a raw
+              // longitude and latitude, which isn't the case for Mongo. To do this, we pass the selector
+              // to the query builder manually here using $comment. This is a hack, but it's the only
+              // place in the codebase where we use this operator so it's probably not worth spending a
+              // ton of time making this beautiful.
+              $centerSphere: [ [ terms.lng, terms.lat ], (terms.distance || 100) / 3963.2 ],
+              ...(Posts.isPostgres()
+                ? { $comment: { locationName: `"googleLocation"->'geometry'->'location'` } }
+                : {}
+              ),
+            }
+          }
         },
-      }
+        {$and: [{mongoLocation: {$exists: false}}, {onlineEvent: true}]},
+        {globalEvent: true} // also include events that are open to everyone around the world
+      ]
     },
     options: {
       sort: {
         startTime: 1, // show events in chronological order
-        createdAt: null,
-        _id: null
+        _id: 1
       }
     }
   };
@@ -922,7 +1069,7 @@ Posts.addView("nearbyEvents", (terms: PostsViewTerms) => {
   return query;
 });
 ensureIndex(Posts,
-  augmentForDefaultView({ mongoLocation:"2dsphere", location:1, startTime:1 }),
+  augmentForDefaultView({ mongoLocation:"2dsphere", eventType:1, startTime:1, endTime: 1 }),
   { name: "posts.2dsphere" }
 );
 
@@ -940,11 +1087,18 @@ Posts.addView("events", (terms: PostsViewTerms) => {
     ]}
   }
   
+  let onlineEventSelector: {} = terms.onlineEvent ? {onlineEvent: true} : {}
+  if (terms.onlineEvent === false) {
+    onlineEventSelector = {$or: [
+      {onlineEvent: false}, {onlineEvent: {$exists: false}}
+    ]}
+  }
+  
   return {
     selector: {
       isEvent: true,
       $and: [
-        timeSelector, globalEventSelector
+        timeSelector, globalEventSelector, onlineEventSelector
       ],
       createdAt: {$gte: twoMonthsAgo},
       groupId: terms.groupId ? terms.groupId : null,
@@ -958,7 +1112,7 @@ Posts.addView("events", (terms: PostsViewTerms) => {
   }
 })
 ensureIndex(Posts,
-  augmentForDefaultView({ startTime:1, createdAt:1, baseScore:1 }),
+  augmentForDefaultView({ globalEvent: 1, onlineEvent: 1, startTime:1, endTime: 1, createdAt:1, baseScore:1 }),
   { name: "posts.events" }
 );
 
@@ -1080,7 +1234,8 @@ Posts.addView("sunshineNewUsersPosts", (terms: PostsViewTerms) => {
       userId: terms.userId,
       authorIsUnreviewed: null,
       groupId: null,
-      draft: viewFieldAllowAny
+      draft: viewFieldAllowAny,
+      rejected: null
     },
     options: {
       sort: {
@@ -1094,22 +1249,24 @@ ensureIndex(Posts,
   { name: "posts.sunshineNewUsersPosts" }
 );
 
-Posts.addView("sunshineCuratedSuggestions", function () {
+Posts.addView("sunshineCuratedSuggestions", function (terms) {
+  const audio = terms.audioOnly ? {podcastEpisodeId: {$exists: true}} : {}
   return {
     selector: {
+      ...audio,
       suggestForCuratedUserIds: {$exists:true, $ne: []},
       reviewForCuratedUserId: {$exists:false}
     },
     options: {
       sort: {
-        createdAt: -1,
+        postedAt: -1,
       },
       hint: "posts.sunshineCuratedSuggestions",
     }
   }
 })
 ensureIndex(Posts,
-  augmentForDefaultView({ createdAt:1, reviewForCuratedUserId:1, suggestForCuratedUserIds:1, }),
+  augmentForDefaultView({ postedAt:1, reviewForCuratedUserId:1, suggestForCuratedUserIds:1, }),
   {
     name: "posts.sunshineCuratedSuggestions",
     partialFilterExpression: {suggestForCuratedUserIds: {$exists:true}},
@@ -1139,7 +1296,7 @@ ensureIndex(Posts,
 Posts.addView("pingbackPosts", (terms: PostsViewTerms) => {
   return {
     selector: {
-      "pingbacks.Posts": terms.postId,
+      ...jsonArrayContainsSelector(Posts, "pingbacks.Posts", terms.postId),
       baseScore: {$gt: 0}
     },
     options: {
@@ -1151,7 +1308,9 @@ ensureIndex(Posts,
   augmentForDefaultView({ "pingbacks.Posts": 1, baseScore: 1 }),
   { name: "posts.pingbackPosts" }
 );
+void ensureCustomPgIndex(`CREATE INDEX IF NOT EXISTS idx_posts_pingbacks ON "Posts" USING gin(pingbacks);`);
 
+// TODO: refactor nominations2018 to use nominationCount + postedAt
 Posts.addView("nominations2018", (terms: PostsViewTerms) => {
   return {
     selector: {
@@ -1165,11 +1324,12 @@ Posts.addView("nominations2018", (terms: PostsViewTerms) => {
     }
   }
 })
-ensureIndex(Posts,
-  augmentForDefaultView({ nominationCount2018:1 }),
-  { name: "posts.nominations2018", }
-);
+// ensureIndex(Posts,
+//   augmentForDefaultView({ nominationCount2018:1 }),
+//   { name: "posts.nominations2018", }
+// );
 
+// TODO: refactor nominations2019 to filter for nominationsCount + postedAt
 Posts.addView("nominations2019", (terms: PostsViewTerms) => {
   return {
     selector: {
@@ -1183,10 +1343,10 @@ Posts.addView("nominations2019", (terms: PostsViewTerms) => {
     }
   }
 })
-ensureIndex(Posts,
-  augmentForDefaultView({ nominationCount2019:1 }),
-  { name: "posts.nominations2019", }
-);
+// ensureIndex(Posts,
+//   augmentForDefaultView({ nominationCount2019:1 }),
+//   { name: "posts.nominations2019", }
+// );
 
 Posts.addView("reviews2018", (terms: PostsViewTerms) => {
   const sortings = {
@@ -1239,53 +1399,10 @@ Posts.addView("voting2019", (terms: PostsViewTerms) => {
 // We're filtering on nominationCount greater than 2, so do not need additional indexes
 // using nominations2018
 
-Posts.addView("tagProgressUntagged", (terms: PostsViewTerms) => {
-  return {
-    selector: {  
-      baseScore: {$gt: 25},
-      $or: [{tagRelevance: {}}, {tagRelevance: null}]
-    },
-  }
-})
-
-Posts.addView("personalTagProgressUntagged", (terms: PostsViewTerms) => {
-  return {
-    selector: {
-      userId: terms.userId,
-      baseScore: {$gt: 25},
-      $or: [{tagRelevance: {}}, {tagRelevance: null}]
-    },
-  }
-})
-
-Posts.addView("tagProgressPosts", (terms: PostsViewTerms) => {
-  return {
-    selector: {
-      baseScore: {$gt:25},
-    },
-  }
-})
-
-Posts.addView("personalTagProgressPosts", (terms: PostsViewTerms) => {
-  return {
-    selector: {
-      userId: terms.userId,
-      baseScore: {$gt:25},
-    },
-  }
-})
-
-ensureIndex(Posts,
-  augmentForDefaultView({ userId: 1, tagRelevance: 1}),
-  {
-    name: "posts.users_tagged_posts",
-  }
-);
-
-Posts.addView("stickied", (terms: PostsViewTerms) => (
-  {
+Posts.addView("stickied", (terms: PostsViewTerms, _, context?: ResolverContext) => ({
     selector: {
       sticky: true,
+      ...(context?.currentUser?._id ? {_id: {$ne: startHerePostIdSetting.get()}} : {}),
     },
     options: {
       sort: {
@@ -1296,11 +1413,11 @@ Posts.addView("stickied", (terms: PostsViewTerms) => (
 ));
 
 // used to find a user's upvoted posts, so they can nominate them for the Review
-Posts.addView("nominatablePostsByVote", (terms: PostsViewTerms, _, context: ResolverContext) => {
+Posts.addView("nominatablePostsByVote", (terms: PostsViewTerms, _, context?: ResolverContext) => {
   return {
     selector: {
       _id: {$in: terms.postIds},
-      userId: {$ne: context.currentUser?._id,},
+      userId: {$ne: context?.currentUser?._id,},
       isEvent: false
     },
     options: {
@@ -1320,13 +1437,14 @@ ensureIndex(Posts,
 Posts.addView("reviewVoting", (terms: PostsViewTerms) => {
   return {
     selector: {
-      positiveReviewVoteCount: { $gte: 1 },
+      positiveReviewVoteCount: { $gte: getPositiveVoteThreshold(terms.reviewPhase) },
+      reviewCount: { $gte: INITIAL_REVIEW_THRESHOLD }
     },
     options: {
       // This sorts the posts deterministically, which is important for the
       // relative stability of the seeded frontend sort
       sort: {
-        createdAt: -1
+        lastCommentedAt: -1
       },
       ...(terms.excludeContents ?
         {projection: {contents: 0}} :
@@ -1338,3 +1456,74 @@ ensureIndex(Posts,
   augmentForDefaultView({ positiveReviewVoteCount: 1, createdAt: 1 }),
   { name: "posts.positiveReviewVoteCount", }
 );
+
+Posts.addView("reviewQuickPage", (terms: PostsViewTerms) => {
+  return {
+    selector: {
+      reviewCount: 0,
+      positiveReviewVoteCount: { $gte: REVIEW_AND_VOTING_PHASE_VOTECOUNT_THRESHOLD },
+      reviewVoteScoreAllKarma: { $gte: QUICK_REVIEW_SCORE_THRESHOLD }
+    },
+    options: {
+      sort: {
+        reviewVoteScoreHighKarma: -1
+      }
+    }
+  }
+})
+
+
+// During the Final Voting phase, posts need at least one positive vote and at least one review to qualify
+Posts.addView("reviewFinalVoting", (terms: PostsViewTerms) => {
+  return {
+    selector: {
+      reviewCount: { $gte: VOTING_PHASE_REVIEW_THRESHOLD },
+      positiveReviewVoteCount: { $gte: REVIEW_AND_VOTING_PHASE_VOTECOUNT_THRESHOLD }
+    },
+    options: {
+      // This sorts the posts deterministically, which is important for the
+      // relative stability of the seeded frontend sort
+      sort: {
+        lastCommentedAt: -1
+      },
+      ...(terms.excludeContents ?
+        {projection: {contents: 0}} :
+        {})
+    }
+  }
+})
+ensureIndex(Posts,
+  augmentForDefaultView({ positiveReviewVoteCount: 1, reviewCount: 1, createdAt: 1 }),
+  { name: "posts.positiveReviewVoteCountReviewCount", }
+);
+
+Posts.addView("myBookmarkedPosts", (terms: PostsViewTerms, _, context?: ResolverContext) => {
+  // Get list of bookmarked posts from the user object. This is ordered by when
+  // the bookmark was created (earlier is older).
+  let bookmarkedPostIds = (context?.currentUser?.bookmarkedPostsMetadata
+    ? uniq(context?.currentUser?.bookmarkedPostsMetadata.map(bookmark => bookmark.postId))
+    : []
+  );
+  
+  // If there's a limit, apply that limit to the list of IDs, before it's applied
+  // to the query. (We do this because the $in operator isn't going to respect
+  // the ordering of the IDs we give it).
+  //
+  // HACK: While the limit reflects the sort ordering of
+  // currentUser.bookmarkedPostsMetadata, the results ordering doesn't. So the
+  // BookmarksList component sorts the results itself after they come back.
+  if (terms.limit) {
+    bookmarkedPostIds = bookmarkedPostIds.reverse().slice(0, terms.limit);
+  }
+  
+  return {
+    selector: {
+      _id: {$in: bookmarkedPostIds},
+      isEvent: viewFieldAllowAny,
+      groupId: null
+    },
+    options: {
+      sort: {},
+    },
+  };
+});

@@ -56,7 +56,7 @@ const styles = createStyles((theme: ThemeType): JssStyles => ({
     fontSize: "16px",
     marginLeft: "5px",
     "&:hover": {
-      background: "rgba(0,0,0, 0.05)",
+      background: theme.palette.panelBackground.darken05,
     },
     color: theme.palette.lwTertiary.main
   },
@@ -106,7 +106,7 @@ const GroupFormDialog =  ({ onClose, classes, documentId, isOnline }: {
   >
     <DialogContent className={classes.localGroupForm}>
       <WrappedSmartForm
-        collection={Localgroups}
+        collectionName="Localgroups"
         documentId={documentId}
         queryFragment={getFragment('localGroupsEdit')}
         mutationFragment={getFragment('localGroupsHomeFragment')}
@@ -114,7 +114,7 @@ const GroupFormDialog =  ({ onClose, classes, documentId, isOnline }: {
           FormSubmit: SubmitComponent
         }}
         prefilledProps={documentId ? {} : {organizerIds: [currentUser!._id], isOnline: isOnline}} // If edit form, do not prefill any data
-        successCallback={group => {
+        successCallback={(group: any) => {
           onClose();
           if (documentId) {
             flash({messageString: "Successfully edited local group " + group.name});

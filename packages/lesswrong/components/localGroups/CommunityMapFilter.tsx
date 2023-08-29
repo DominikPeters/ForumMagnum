@@ -14,12 +14,12 @@ import RoomIcon from '@material-ui/icons/Room';
 import StarIcon from '@material-ui/icons/Star';
 import PersonPinIcon from '@material-ui/icons/PersonPin';
 import Tooltip from '@material-ui/core/Tooltip';
-import withDialog from '../common/withDialog'
+import withDialog, { CloseableComponents, OpenDialogContextType } from '../common/withDialog'
 import withUser from '../common/withUser';
 import { PersonSVG, ArrowSVG, GroupIconSVG } from './Icons'
 import qs from 'qs'
 import * as _ from 'underscore';
-import { forumTypeSetting } from '../../lib/instanceSettings';
+import { forumTypeSetting, isEAForum } from '../../lib/instanceSettings';
 import { userIsAdmin } from '../../lib/vulcan-users';
 
 const availableFilters = _.map(groupTypes, t => t.shortName);
@@ -65,10 +65,11 @@ const styles = (theme: ThemeType): JssStyles => ({
     height: '0.7em'
   },
   checkboxLabel: {
-    ...theme.typography.body2
+    ...theme.typography.body2,
+    fontWeight: isEAForum ? 600 : undefined,
   },
   checkedLabel: {
-    color: 'white'
+    color: theme.palette.text.tooltipText,
   },
   filterSection: {
     display: "flex",
@@ -103,7 +104,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     cursor: "pointer"
   },
   hideSection: {
-    backgroundColor: 'rgba(0,0,0,0.05)'
+    backgroundColor: theme.palette.panelBackground.darken05,
   },
   buttonIcon: {
     width: '1.2rem',
@@ -122,7 +123,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     cursor: "pointer"
   },
   visibilityIcon: {
-    color: 'rgba(0,0,0,0.4)',
+    color: theme.palette.icon.dim2,
     cursor: "pointer",
   },
   addIcon: {
@@ -131,7 +132,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     }
   },
   checkedVisibilityIcon: {
-    color: 'rgba(0,0,0,0.87)'
+    color: theme.palette.text.normal,
   },
   actionContainer: {
     marginLeft: 'auto',
@@ -178,7 +179,11 @@ const styles = (theme: ThemeType): JssStyles => ({
   }
 });
 
-const createFallBackDialogHandler = (openDialog, dialogName, currentUser) => {
+const createFallBackDialogHandler = (
+  openDialog: OpenDialogContextType['openDialog'],
+  dialogName: CloseableComponents,
+  currentUser: UsersCurrent | null
+) => {
   return () => openDialog({
     componentName: currentUser ? dialogName : "LoginPopup",
   });
@@ -214,7 +219,7 @@ class CommunityMapFilter extends Component<CommunityMapFilterProps,CommunityMapF
     }
   }
 
-  handleCheck = (filter) => {
+  handleCheck = (filter: string) => {
     const { location, history } = this.props
     let newFilters: Array<any> = [];
     if (Array.isArray(this.state.filters) && this.state.filters.includes(filter)) {

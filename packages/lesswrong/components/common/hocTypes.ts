@@ -4,7 +4,6 @@ import { RouterLocation } from '../../lib/vulcan-lib';
 declare global {
 
 type ClassesType = Record<string,any>
-type ThemeType = any
 type JssStyles = any
 
 interface WithStylesProps {
@@ -66,6 +65,11 @@ type NullablePartial<T> = { [K in keyof T]?: T[K]|null|undefined }
 
 type WithUpdateFunction<T extends CollectionBase<U>, U extends DbObject = DbObjectForCollectionBase<T>> = (args: {
   selector: MongoSelector<U>,
+  data: NullablePartial<U>,
+  extraVariables?: any,
+}) => Promise<FetchResult>;
+
+type WithCreateFunction<T extends CollectionBase<U>, U extends DbObject = DbObjectForCollectionBase<T>> = (args: {
   data: NullablePartial<U>,
   extraVariables?: any,
 }) => Promise<FetchResult>;

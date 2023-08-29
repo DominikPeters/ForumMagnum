@@ -1,4 +1,4 @@
-import { ensureIndex } from '../../collectionUtils';
+import { ensureIndex } from '../../collectionIndexUtils';
 import { forumTypeSetting } from '../../instanceSettings';
 import Sequences from './collection';
 
@@ -20,7 +20,7 @@ Sequences.addDefaultView((terms: SequencesViewTerms) => {
   return params;
 })
 
-function augmentForDefaultView(indexFields)
+function augmentForDefaultView(indexFields: MongoIndexKeyObj<DbSequence>): MongoIndexKeyObj<DbSequence>
 {
   return { hidden:1, af:1, isDeleted:1, ...indexFields };
 }
@@ -43,6 +43,26 @@ Sequences.addView("userProfile", function (terms: SequencesViewTerms) {
 });
 ensureIndex(Sequences, augmentForDefaultView({ userId:1, userProfileOrder: -1 }));
 
+Sequences.addView("userProfilePrivate", function (terms: SequencesViewTerms) {
+  return {
+    selector: {
+      userId: terms.userId,
+      isDeleted: false,
+      $or: [
+        {draft: true},
+        {hideFromAuthorPage: true}
+      ]
+    },
+    options: {
+      sort: {
+        draft: -1,
+        userProfileOrder: 1,
+        createdAt: -1,
+      }
+    },
+  };
+});
+
 Sequences.addView("userProfileAll", function (terms: SequencesViewTerms) {
   return {
     selector: {
@@ -51,7 +71,7 @@ Sequences.addView("userProfileAll", function (terms: SequencesViewTerms) {
     },
     options: {
       sort: {
-        drafts: -1,
+        draft: -1,
         hideFromAuthorPage: 1,
         userProfileOrder: 1,
         createdAt: -1
@@ -59,6 +79,7 @@ Sequences.addView("userProfileAll", function (terms: SequencesViewTerms) {
     },
   };
 });
+ensureIndex(Sequences, augmentForDefaultView({ userId: 1, draft: 1, hideFromAuthorPage: 1, userProfileOrder: 1 }))
 
 Sequences.addView("curatedSequences", function (terms: SequencesViewTerms) {
   return {
@@ -85,9 +106,12 @@ Sequences.addView("communitySequences", function (terms: SequencesViewTerms) {
       userId: terms.userId,
       curatedOrder: {$exists: false},
       gridImageId: {$ne: null },
-      canonicalCollectionSlug: { $in: [null, ""] },
       isDeleted: false,
       draft: false,
+      $or: [
+        {canonicalCollectionSlug: ""},
+        {canonicalCollectionSlug: {$exists: false}},
+      ],
     },
     options: {
       sort: {

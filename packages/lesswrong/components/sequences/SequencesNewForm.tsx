@@ -16,7 +16,7 @@ export const styles = (theme: ThemeType): JssStyles => ({
     width: "100%",
   
     "& .input-title .form-input-errors": {
-      backgroundColor: "rgba(0,0,0,0.25)",
+      backgroundColor: theme.palette.panelBackground.formErrors,
       width: "100%",
       textAlign: "center",
       margin: "0 !important",
@@ -47,6 +47,10 @@ export const styles = (theme: ThemeType): JssStyles => ({
       fontSize: "1em",
       zIndex: 2,
       textAlign: "left",
+    },
+
+    '& .form-component-EditorFormComponent': {
+      marginTop: 30
     },
   
     "& .vulcan-form": {
@@ -84,6 +88,14 @@ export const styles = (theme: ThemeType): JssStyles => ({
         position: "absolute !important",
         left: 0,
         maxWidth: "100%",
+        '& img': {
+          width: "100% !important",
+          height: "380px !important",
+        },
+        '& .ImageUpload-root': {
+          marginLeft: '0 !important',
+          paddingTop: '0 !important'
+        },
   
         [theme.breakpoints.down('sm')]: {
           marginTop: 40,
@@ -141,8 +153,8 @@ const SequencesNewForm = ({ redirect, cancelCallback, removeSuccessCallback, cla
     return (
       <div className={classes.sequencesForm}>
         <Components.WrappedSmartForm
-          collection={Sequences}
-          successCallback={(sequence) => {
+          collectionName="Sequences"
+          successCallback={(sequence: any) => {
             history.push({pathname: redirect || '/s/' + sequence._id });
             flash({messageString: "Successfully created Sequence", type: "success"});
           }}

@@ -12,6 +12,7 @@ registerFragment(`
     }
     archivedByIds
     messageCount
+    moderator
   }
 `);
 
@@ -20,5 +21,11 @@ registerFragment(`
     _id
     title
     participantIds
+  }
+`);
+
+registerFragment(`
+  fragment conversationIdFragment on Conversation {
+    _id
   }
 `);

@@ -7,12 +7,16 @@ registerFragment(`
     createdAt
     username
     displayName
+    profileImageId
+    previousDisplayName
     fullName
     karma
     afKarma
     deleted
     isAdmin
     htmlBio
+    jobTitle
+    organization
     postCount
     commentCount
     sequenceCount
@@ -20,6 +24,7 @@ registerFragment(`
     afCommentCount
     spamRiskScore
     tagRevisionCount
+    reviewedByUserId
   }
 `);
 
@@ -28,8 +33,32 @@ registerFragment(`
     ...UsersMinimumInfo
     oldSlugs
     groups
-    bio
+    jobTitle
+    organization
+    careerStage
+    biography {
+      ...RevisionDisplay
+    }
+    howOthersCanHelpMe {
+      ...RevisionEdit
+    }
+    howICanHelpOthers {
+      ...RevisionEdit
+    }
+    profileTagIds
+    profileTags {
+      ...TagBasicInfo
+    }
+    organizerOfGroupIds
+    organizerOfGroups {
+      ...localGroupsBase
+    }
+    programParticipation
     website
+    linkedinProfileURL
+    facebookProfileURL
+    twitterProfileURL
+    githubProfileURL
     frontpagePostCount
     afSequenceCount
     afSequenceDraftCount
@@ -52,13 +81,18 @@ registerFragment(`
     auto_subscribe_to_my_comments
     autoSubscribeAsOrganizer
     petrovPressedButtonDate
-    sortDrafts
-    reenableDraftJs
+    petrovOptOut
+    sortDraftsBy
     ...SunshineUsersList
     ...SharedUserBooleans
     noindex
     paymentEmail
     paymentInfo
+    goodHeartTokens
+    postingDisabled
+    allCommentingDisabled
+    commentingOnOtherUsersDisabled
+    conversationsDisabled
   }
 `);
 
@@ -69,6 +103,7 @@ registerFragment(`
     beta
     email
     services
+    acceptedTos
     pageUrl
     voteBanned
     banned
@@ -76,22 +111,33 @@ registerFragment(`
     nullifyVotes
     hideIntercom
     hideNavigationSidebar
+    hideCommunitySection
+    expandedFrontpageSections
+    hidePostsRecommendations
     currentFrontpageFilter
     frontpageFilterSettings
+    hideFrontpageFilterSettingsDesktop
     allPostsTimeframe
     allPostsSorting
     allPostsFilter
     allPostsShowLowKarma
     allPostsIncludeEvents
+    allPostsHideCommunity
     allPostsOpenSettings
+    draftsListSorting
+    draftsListShowArchived
+    draftsListShowShared
     lastNotificationsCheck
     bannedUserIds
     bannedPersonalUserIds
-    bio
+    biography {
+      ...RevisionEdit
+    }
     moderationStyle
     moderationGuidelines {
       ...RevisionEdit
     }
+    noKibitz
     showHideKarmaOption
     markDownPostEditor
     hideElicitPredictions
@@ -116,20 +162,21 @@ registerFragment(`
     whenConfirmationEmailSent
     hideSubscribePoke
     hideMeetupsPoke
+    hideHomeRHS
     noCollapseCommentsFrontpage
     noCollapseCommentsPosts
     noSingleLineComments
+    showCommunityInRecentDiscussion
     karmaChangeNotifierSettings
     karmaChangeLastOpened
     shortformFeedId
     viewUnreviewedComments
     recommendationSettings
+    theme
 
     bookmarkedPostsMetadata
-    bookmarkedPosts {
-      ...PostsList
-    }
 
+    hiddenPostsMetadata
     auto_subscribe_to_my_posts
     auto_subscribe_to_my_comments
     autoSubscribeAsOrganizer
@@ -144,13 +191,53 @@ registerFragment(`
     abTestKey
     abTestOverrides
 
-    sortDrafts
+    sortDraftsBy
+    reactPaletteStyle
 
-    reenableDraftJs
     petrovPressedButtonDate
     petrovLaunchCodeDate
+    petrovOptOut
     lastUsedTimezone
     ...SharedUserBooleans
+
+    acknowledgedNewUserGuidelines
+    notificationSubforumUnread
+    subforumPreferredLayout
+    
+    experiencedIn
+    interestedIn
+    
+    allowDatadogSessionReplay
+    hideFrontpageBook2020Ad
+  }
+`);
+
+/**
+ * Fragment containing rate-limit information (ie, whether the user is rate limited and when
+ * they're next eligible to comment). Separated from `UsersCurrent` because figuring that out can
+ * involve some DB queries that we don't want to have to finish in serial before the rest of the
+ * page can start loading.
+ */
+registerFragment(`
+  fragment UsersCurrentCommentRateLimit on User {
+    _id
+    rateLimitNextAbleToComment(postId: $postId)
+  }
+`);
+
+registerFragment(`
+  fragment UsersCurrentPostRateLimit on User {
+    _id
+    rateLimitNextAbleToPost(eventForm: $eventForm)
+  }
+`);
+
+registerFragment(`
+  fragment UserBookmarkedPosts on User {
+    _id
+    bookmarkedPosts {
+      ...PostsList
+    }
   }
 `);
 
@@ -175,6 +262,7 @@ registerFragment(`
         description
         postId
         tagSlug
+        tagCommentType
       }
       tagRevisions {
         _id
@@ -193,6 +281,7 @@ registerFragment(`
     slug
     displayName
     bannedUserIds
+    bannedPersonalUserIds
   }
 `)
 
@@ -200,10 +289,11 @@ registerFragment(`
   fragment SunshineUsersList on User {
     ...UsersMinimumInfo
     karma
-    bio
     htmlBio
+    website
     createdAt
     email
+    emails
     commentCount
     maxCommentCount
     postCount
@@ -217,10 +307,46 @@ registerFragment(`
     reviewedByUserId
     reviewedAt
     signUpReCaptchaRating
+    mapLocation
     needsReview
-    sunshineSnoozed
     sunshineNotes
     sunshineFlagged
+    postingDisabled
+    allCommentingDisabled
+    commentingOnOtherUsersDisabled
+    conversationsDisabled
+    snoozedUntilContentCount
+    voteBanned
+    nullifyVotes
+    deleteContent
+    
+    moderatorActions {
+      ...ModeratorActionDisplay
+    }
+    usersContactedBeforeReview
+    associatedClientIds {
+      clientId
+      firstSeenReferrer
+      firstSeenLandingPage
+      userIds
+    }
+    altAccountsDetected
+
+    voteReceivedCount
+    smallUpvoteReceivedCount
+    bigUpvoteReceivedCount
+    smallDownvoteReceivedCount
+    bigDownvoteReceivedCount
+
+    recentKarmaInfo
+    lastNotificationsCheck
+  }
+`);
+
+registerFragment(`
+  fragment UserAltAccountsFragment on User {
+    ...SunshineUsersList
+    IPs
   }
 `);
 
@@ -254,7 +380,9 @@ registerFragment(`
 registerFragment(`
   fragment UsersEdit on User {
     ...UsersProfile
-    beta
+    biography {
+      ...RevisionEdit
+    }
     # Moderation Guidelines editor information
     moderationGuidelines {
       ...RevisionEdit
@@ -270,6 +398,11 @@ registerFragment(`
     noCollapseCommentsPosts
     noCollapseCommentsFrontpage
     noSingleLineComments
+    hideCommunitySection
+    showCommunityInRecentDiscussion
+    hidePostsRecommendations
+    beta
+    theme
 
     # Emails
     email
@@ -277,12 +410,14 @@ registerFragment(`
     emailSubscribedToCurated
     subscribedToDigest
     unsubscribeFromAll
+    hasAuth0Id
 
     # Moderation
     moderatorAssistance
     collapseModerationGuidelines
     bannedUserIds
     bannedPersonalUserIds
+    noKibitz
     showHideKarmaOption
 
     # Ban & Purge
@@ -300,6 +435,12 @@ registerFragment(`
     mongoLocation
     googleLocation
     location
+    
+    # Map Location (public)
+    mapLocation
+    
+    # Privacy settings
+    allowDatadogSessionReplay
 
     # Admin & Review
     reviewedByUserId
@@ -328,11 +469,14 @@ registerFragment(`
     notificationRSVPs
     notificationCommentsOnDraft
     notificationPostsNominatedReview
+    notificationGroupAdministration
+    notificationSubforumUnread
+    notificationNewMention
 
     hideFrontpageMap
     hideTaggingProgressBar
     hideFrontpageBookAd
-    hideFrontpageBook2019Ad
+    hideFrontpageBook2020Ad
 
     deleted
   }
@@ -358,5 +502,46 @@ registerFragment(`
     ...UsersMinimumInfo
     reviewVoteCount
     email
+  }
+`)
+
+registerFragment(`
+  fragment UsersProfileEdit on User {
+    _id
+    slug
+    jobTitle
+    organization
+    careerStage
+    profileImageId
+    biography {
+      ...RevisionEdit
+    }
+    howOthersCanHelpMe {
+      ...RevisionEdit
+    }
+    howICanHelpOthers {
+      ...RevisionEdit
+    }
+    profileTagIds
+    organizerOfGroupIds
+    organizerOfGroups {
+      ...localGroupsBase
+    }
+    programParticipation
+    mapLocation
+    website
+    linkedinProfileURL
+    facebookProfileURL
+    twitterProfileURL
+    githubProfileURL
+  }
+`)
+
+registerFragment(`
+  fragment UsersCrosspostInfo on User {
+    _id
+    username
+    slug
+    fmCrosspostUserId
   }
 `)

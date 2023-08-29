@@ -8,26 +8,27 @@ import { getUrlClass, useNavigation } from '../../lib/routeUtil';
 import { useHover } from '../common/withHover';
 import withErrorBoundary from '../common/withErrorBoundary';
 import { parseRouteWithErrors } from '../linkPreview/HoverPreviewLink';
+import { useTracking } from '../../lib/analyticsEvents';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
     "&:hover": {
-      backgroundColor: "rgba(0,0,0,0.02) !important",
+      backgroundColor: `${theme.palette.panelBackground.darken02} !important`,
     },
     display: "flex",
     alignItems: "center",
     padding: 0,
-    borderBottom: "solid 1px rgba(0,0,0,.1)",
+    borderBottom: theme.palette.border.faint,
 
     // Disable MUI's hover-highlight-color animation that conflicts with having
     // a non-default background color and looks glitchy.
     transition: "none",
   },
   read: {
-    backgroundColor: "rgba(0,0,0,0.04) !important",
+    backgroundColor: `${theme.palette.panelBackground.darken04} !important`,
     
     "&:hover": {
-      backgroundColor: "rgba(0,0,0,0.08) !important",
+      backgroundColor: `${theme.palette.panelBackground.darken08} !important`,
     },
   },
   unread: {
@@ -39,12 +40,11 @@ const styles = (theme: ThemeType): JssStyles => ({
     }
   },
   notificationLabel: {
-    ...theme.typography.commentStyles,
     ...theme.typography.body2,
     fontSize: "14px",
     lineHeight: "18px",
     paddingRight: theme.spacing.unit*2,
-    color: "rgba(0,0,0, 0.66)",
+    color: theme.palette.text.notificationLabel,
     
     // Two-line ellipsis hack. Webkit-specific (doesn't work in Firefox),
     // inherited from old-Material-UI (where it also doesn't work in Firefox,
@@ -69,13 +69,23 @@ const NotificationsItem = ({notification, lastNotificationsCheck, currentUser, c
     pageElementContext: "linkPreview",
     pageElementSubContext: "notificationItem",
   });
+  const { captureEvent } = useTracking();
   const { history } = useNavigation();
   const { LWPopper } = Components
   const notificationType = getNotificationTypeByName(notification.type);
 
+  const notificationLink = (notificationType.getLink
+    ? notificationType.getLink({
+      documentType: notification.documentType,
+      documentId: notification.documentId,
+      extraData: notification.extraData,
+    })
+    : notification.link
+  );
+
   const renderPreview = () => {
     const { PostsPreviewTooltipSingle, TaggedPostTooltipSingle, PostsPreviewTooltipSingleWithComment, ConversationPreview, PostNominatedNotification } = Components
-    const parsedPath = parseRouteWithErrors(notification.link)
+    const parsedPath = parseRouteWithErrors(notificationLink)
 
     if (notificationType.onsiteHoverView) {
       return <Card>
@@ -113,11 +123,19 @@ const NotificationsItem = ({notification, lastNotificationsCheck, currentUser, c
         return notification.message
     }
   }
-
+  
   return (
     <span {...eventHandlers}>
+      <LWPopper
+        open={hover}
+        anchorEl={anchorEl}
+        placement="left-start"
+        allowOverflow
+      >
+        <span className={classes.preview}>{renderPreview()}</span>
+      </LWPopper>
       <a
-        href={notification.link}
+        href={notificationLink}
         className={classNames(
           classes.root,
           {
@@ -128,16 +146,26 @@ const NotificationsItem = ({notification, lastNotificationsCheck, currentUser, c
         onClick={(ev) => {
           if (ev.button>0 || ev.ctrlKey || ev.shiftKey || ev.altKey || ev.metaKey)
             return;
+            
+          captureEvent("notificationItemClick", {
+            notification: {
+              _id: notification._id,
+              type: notification.type,
+              documentId: notification.documentId,
+              documentType: notification.documentType,
+              link: notification.link,
+            }
+          });
           
           // Do manual navigation since we also want to do a bunch of other stuff
           ev.preventDefault()
-          history.push(notification.link)
+          history.push(notificationLink)
 
           setClicked(true);
           
           // we also check whether it's a relative link, and if so, scroll to the item
           const UrlClass = getUrlClass()
-          const url = new UrlClass(notification.link, getSiteUrl())
+          const url = new UrlClass(notificationLink, getSiteUrl())
           const hash = url.hash
           if (hash) {
             const element = document.getElementById(hash.substr(1))
@@ -145,24 +173,11 @@ const NotificationsItem = ({notification, lastNotificationsCheck, currentUser, c
           }
         }}
       >
-        <LWPopper
-          open={hover}
-          anchorEl={anchorEl}
-          placement="left-start"
-          modifiers={{
-            flip: {
-              behavior: ["left-start"],
-              boundariesElement: 'viewport'
-            }
-          }}
-        >
-          <span className={classes.preview}>{renderPreview()}</span>
-        </LWPopper>
-        {notificationType.getIcon()}
-        <div className={classes.notificationLabel}>
-          {renderMessage()}
-        </div>
-      </a>
+      {notificationType.getIcon()}
+      <div className={classes.notificationLabel}>
+        {renderMessage()}
+      </div>
+    </a>
     </span>
   )
 }

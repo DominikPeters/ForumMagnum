@@ -43,6 +43,20 @@ getCollectionHooks("Users").editAsync.add(async function userEditNullifyVotesCal
   }
 });
 
+getCollectionHooks("Users").editAsync.add(async function userEditChangeDisplayNameCallbacksAsync(user: DbUser, oldUser: DbUser) {
+  // if the user is setting up their profile and their username changes from that form,
+  // we don't want this action to count toward their one username change
+  const isSettingUsername = oldUser.usernameUnset && !user.usernameUnset
+  if (user.displayName !== oldUser.displayName && !isSettingUsername) {
+    await updateMutator({
+      collection: Users,
+      documentId: user._id,
+      set: {previousDisplayName: oldUser.displayName},
+      currentUser: user,
+      validate: false,
+    });
+  }
+});
 
 getCollectionHooks("Users").updateAsync.add(function userEditDeleteContentCallbacksAsync({newDocument, oldDocument, currentUser}) {
   if (newDocument.deleteContent && !oldDocument.deleteContent && currentUser) {
@@ -219,7 +233,7 @@ async function deleteUserTagsAndRevisions(user: DbUser, deletingUser: DbUser) {
   const tagRevisions = await Revisions.find({userId: user._id, collectionName: 'Tags'}).fetch()
   // eslint-disable-next-line no-console
   console.info("Deleting tag revisions: ", tagRevisions)
-  await Revisions.remove({userId: user._id})
+  await Revisions.rawRemove({userId: user._id})
   // Revert revision documents
   for (let revision of tagRevisions) {
     const collection = getCollectionsByName()[revision.collectionName] as CollectionBase<DbObject, any>
@@ -273,7 +287,7 @@ export async function userIPBanAndResetLoginTokens(user: DbUser) {
   }
 
   // Remove login tokens
-  await Users.update({_id: user._id}, {$set: {"services.resume.loginTokens": []}});
+  await Users.rawUpdateOne({_id: user._id}, {$set: {"services.resume.loginTokens": []}});
 }
 
 
@@ -286,7 +300,9 @@ getCollectionHooks("LWEvents").newSync.add(async function updateReadStatus(event
     //   https://docs.mongodb.com/manual/core/retryable-writes/#retryable-update-upsert
     // In particular, this means the selector has to exactly match the unique
     // index's keys.
-    await ReadStatuses.update({
+    //
+    // EDIT 2022-09-16: This is still the case in postgres ^
+    await ReadStatuses.rawUpdateOne({
       postId: event.documentId,
       userId: event.userId,
       tagId: null,

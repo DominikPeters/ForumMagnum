@@ -1,12 +1,18 @@
 import { registerComponent, Components } from '../../../lib/vulcan-lib';
 import React from 'react';
-import MenuItem from '@material-ui/core/MenuItem';
-import { Link } from '../../../lib/reactRouterWrapper';
 import classNames from 'classnames';
 import { useLocation } from '../../../lib/routeUtil';
 import { MenuTabRegular } from './menuTabs';
+import { isEAForum } from '../../../lib/instanceSettings';
+import { forumSelect } from '../../../lib/forumTypeUtils';
 
 export const iconWidth = 30
+
+const iconTransform = forumSelect({
+  LessWrong: "scale(0.8)",
+  EAForum: "scale(0.7)",
+  default: undefined,
+});
 
 const styles = (theme: ThemeType): JssStyles => ({
   selected: {
@@ -14,19 +20,27 @@ const styles = (theme: ThemeType): JssStyles => ({
       opacity: 1,
     },
     '& $navText': {
-      color: theme.palette.grey[900],
+      color: theme.palette.grey[isEAForum ? 1000 : 900],
       fontWeight: 600,
     },
   },
   navButton: {
     '&:hover': {
-      opacity:.6,
+      opacity: isEAForum ? 1 : 0.6,
+      color: isEAForum ? theme.palette.grey[800] : undefined,
       backgroundColor: 'transparent' // Prevent MUI default behavior of rendering solid background on hover
     },
-    paddingTop: theme.spacing.unit*2,
-    paddingBottom: theme.spacing.unit*2,
-    paddingLeft: theme.spacing.unit*2,
-    paddingRight: theme.spacing.unit*2,
+    color: theme.palette.grey[isEAForum ? 600 : 800],
+    ...(theme.forumType === "LessWrong"
+      ? {
+        paddingTop: 7,
+        paddingBottom: 8,
+        paddingLeft: 16,
+        paddingRight: 16,
+      } : {
+        padding: 16,
+      }
+    ),
     display: "flex",
     alignItems: "center",
     justifyContent: "flex-start",
@@ -38,19 +52,30 @@ const styles = (theme: ThemeType): JssStyles => ({
     paddingLeft: 0,
     paddingRight: 0,
     '&:hover': {
-      backgroundColor: 'transparent' // Prevent MUI default behavior of rendering solid background on hover
+      backgroundColor: 'transparent', // Prevent MUI default behavior of rendering solid background on hover
+      opacity: isEAForum ? 1 : undefined,
     }
   },
   icon: {
     opacity: .3,
     width: iconWidth,
     height: 28,
-    marginRight: theme.spacing.unit*2,
+    marginRight: 16,
     display: "inline",
+    "& svg": {
+      fill: isEAForum ? undefined : "currentColor",
+      color: isEAForum ? undefined : theme.palette.icon.navigationSidebarIcon,
+      transform: iconTransform,
+    },
+  },
+  selectedIcon: {
+    "& svg": {
+      color: isEAForum ? theme.palette.grey[1000] : undefined,
+    },
   },
   navText: {
     ...theme.typography.body2,
-    color: theme.palette.grey[800],
+    color: "inherit",
     textTransform: "none !important",
   },
   homeIcon: {
@@ -59,6 +84,9 @@ const styles = (theme: ThemeType): JssStyles => ({
       position: "relative",
       top: -1,
     }
+  },
+  tooltip: {
+    maxWidth: isEAForum ? 190 : undefined,
   },
 })
 
@@ -69,37 +97,51 @@ type TabNavigationItemProps = {
 }
 
 const TabNavigationItem = ({tab, onClick, classes}: TabNavigationItemProps) => {
-  const { TabNavigationSubItem, LWTooltip } = Components
+  const { TabNavigationSubItem, LWTooltip, MenuItemLink } = Components
   const { pathname } = useLocation()
   
-  // MenuItem takes a component and passes unrecognized props to that component,
-  // but its material-ui-provided type signature does not include this feature.
-  // Cast to any to work around it, to be able to pass a "to" parameter.
-  const MenuItemUntyped = MenuItem as any;
-  
-  // React router links don't handle external URLs, so use a
-  // normal HTML a tag if the URL is external
+  // Due to an issue with using anchor tags, we use react-router links, even for
+  // external links, we just use window.open to actuate the link.
   const externalLink = /https?:\/\//.test(tab.link);
-  const Element = externalLink ?
-    ({to, ...rest}) => <a href={to} target="_blank" rel="noopener noreferrer" {...rest} />
-    : Link;
+  let handleClick = onClick
+  if (externalLink) {
+    handleClick = (e) => {
+      e.preventDefault()
+      window.open(tab.link, '_blank')?.focus()
+      onClick && onClick(e)
+    }
+  }
 
-  return <LWTooltip placement='right-start' title={tab.tooltip || ''}>
-    <MenuItemUntyped
-      onClick={onClick}
-      component={Element} to={tab.link}
+  const isSelected = pathname === tab.link;
+  const hasIcon = tab.icon || tab.iconComponent || tab.selectedIconComponent;
+  const IconComponent = isSelected
+    ? tab.selectedIconComponent ?? tab.iconComponent
+    : tab.iconComponent;
+
+  return <LWTooltip
+    placement='right-start'
+    title={tab.tooltip || ''}
+    className={classes.tooltip}
+  >
+    <MenuItemLink
+      onClick={handleClick}
+      // We tried making this [the 'component' of the underlying material-UI
+      // MenuItem component] a function that return an a tag once. It made the
+      // entire sidebar fail on iOS. True story.
+      to={tab.link}
       disableGutters
-      classes={{root: classNames({
+      rootClass={classNames({
         [classes.navButton]: !tab.subItem,
         [classes.subItemOverride]: tab.subItem,
-        [classes.selected]: pathname === tab.link,
-      })}}
+        [classes.selected]: isSelected,
+      })}
       disableTouchRipple
     >
-      {(tab.icon || tab.iconComponent) && <span
-        className={classNames(classes.icon, {[classes.homeIcon]: tab.id === 'home'})}
-      >
-        {tab.iconComponent && <tab.iconComponent />}
+      {hasIcon && <span className={classNames(classes.icon, {
+        [classes.selectedIcon]: isSelected,
+        [classes.homeIcon]: tab.id === 'home',
+      })}>
+        {IconComponent && <IconComponent />}
         {tab.icon && tab.icon}
       </span>}
       {tab.subItem ?
@@ -110,7 +152,7 @@ const TabNavigationItem = ({tab, onClick, classes}: TabNavigationItemProps) => {
           {tab.title}
         </span>
       }
-    </MenuItemUntyped>
+    </MenuItemLink>
   </LWTooltip>
 }
 

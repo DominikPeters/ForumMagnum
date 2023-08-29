@@ -3,7 +3,8 @@ import PropTypes from 'prop-types';
 import Tooltip from '@material-ui/core/Tooltip';
 import Checkbox from '@material-ui/core/Checkbox';
 import { registerComponent } from '../../lib/vulcan-lib';
-import { forumTypeSetting } from '../../lib/instanceSettings';
+import { ForumOptions, forumSelect } from '../../lib/forumTypeUtils';
+import InputLabel from '@material-ui/core/InputLabel';
 
 const defaultTooltipLWAF = ({classes}: {classes: ClassesType}) => <div className={classes.tooltip}>
   <p>LW moderators will consider this post for frontpage</p>
@@ -21,13 +22,14 @@ const defaultTooltipLWAF = ({classes}: {classes: ClassesType}) => <div className
   </ul>
 </div>
 
-const forumDefaultTooltip = {
+const forumDefaultTooltip: ForumOptions<(classes?: ClassesType) => JSX.Element | string> = {
   LessWrong: defaultTooltipLWAF,
   AlignmentForum: defaultTooltipLWAF,
-  EAForum: () => "Uncheck this box if you want your post to stay on your personal blog."
+  EAForum: () => "Uncheck this box if you want your post to stay on your personal blog.",
+  default: () => "Uncheck this box if you want your post to stay on your personal blog."
 }
 
-const defaultTooltip = forumDefaultTooltip[forumTypeSetting.get()]
+const defaultTooltip = forumSelect(forumDefaultTooltip)
 
 const styles = (theme: ThemeType): JssStyles => ({
   submitToFrontpageWrapper: {
@@ -39,7 +41,6 @@ const styles = (theme: ThemeType): JssStyles => ({
   submitToFrontpage: {
     display: "flex",
     alignItems: "center",
-    maxWidth: 200,
     [theme.breakpoints.down('sm')]: {
       width: "100%",
       maxWidth: "none",
@@ -48,12 +49,16 @@ const styles = (theme: ThemeType): JssStyles => ({
     }
   },
   checkboxLabel: {
-    fontWeight:500,
     fontFamily: theme.typography.commentStyle.fontFamily,
-    fontSize: 16,
-    color: "rgba(0,0,0,0.4)",
+    fontSize: 14,
+    color: theme.palette.grey[680],
     verticalAlign: 'middle',
-    lineHeight: '1.25em'
+    lineHeight: '1.25em',
+    marginTop: '3px',
+    cursor: 'pointer'
+  },
+  checkbox: {
+    padding: 6
   },
   tooltip: {
     '& ul': {
@@ -72,7 +77,7 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
 });
 
-interface SubmitToFrontpageCheckboxProps extends WithStylesProps {
+export interface SubmitToFrontpageCheckboxProps extends WithStylesProps {
   fieldName?: string,
   currentValues: any,
   document: any,
@@ -99,15 +104,21 @@ class SubmitToFrontpageCheckbox extends Component<SubmitToFrontpageCheckboxProps
   }
 
   render() {
-    const { classes, label='Moderators may promote to Frontpage', tooltip } = this.props
+    const defaultLabel = forumSelect({
+      EAForum:'This post may appear on the Frontpage',
+      default: 'Moderators may promote to Frontpage'
+    })
+    const { classes, label = defaultLabel, tooltip } = this.props
 
     const displayedTooltip = tooltip || defaultTooltip({classes})
 
     return <div className={classes.submitToFrontpageWrapper}>
       <Tooltip title={displayedTooltip}>
         <div className={classes.submitToFrontpage}>
-          <Checkbox checked={this.getCurrentValue()} onClick={this.handleClick}/>
-          <span className={classes.checkboxLabel}>{label}</span>
+          <InputLabel className={classes.checkboxLabel}>
+            <Checkbox checked={this.getCurrentValue()} onClick={this.handleClick} className={classes.checkbox} />
+            {label}
+          </InputLabel>
         </div>
       </Tooltip>
     </div>

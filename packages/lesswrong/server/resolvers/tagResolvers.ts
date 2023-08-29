@@ -1,13 +1,16 @@
-import { addGraphQLResolvers, addGraphQLQuery, addGraphQLSchema } from '../../lib/vulcan-lib/graphql';
+import { addGraphQLResolvers, addGraphQLQuery, addGraphQLSchema, addGraphQLMutation } from '../../lib/vulcan-lib/graphql';
+import { mergeFeedQueries, defineFeedResolver, viewBasedSubquery, SubquerySortField, SortDirection } from '../utils/feedUtil';
 import { Comments } from '../../lib/collections/comments/collection';
 import { Revisions } from '../../lib/collections/revisions/collection';
 import { Tags } from '../../lib/collections/tags/collection';
+import { TagRels } from '../../lib/collections/tagRels/collection';
 import { Votes } from '../../lib/collections/votes/collection';
 import { Users } from '../../lib/collections/users/collection';
-import { augmentFieldsDict, accessFilterSingle, accessFilterMultiple } from '../../lib/utils/schemaUtils';
+import { Posts } from '../../lib/collections/posts';
+import { augmentFieldsDict, accessFilterMultiple } from '../../lib/utils/schemaUtils';
 import { compareVersionNumbers } from '../../lib/editor/utils';
-import { annotateAuthors } from '../attributeEdits';
 import { toDictionary } from '../../lib/utils/toDictionary';
+import { loadByIds } from '../../lib/loaders';
 import moment from 'moment';
 import sumBy from 'lodash/sumBy';
 import groupBy from 'lodash/groupBy';
@@ -17,6 +20,141 @@ import mapValues from 'lodash/mapValues';
 import take from 'lodash/take';
 import filter from 'lodash/filter';
 import * as _ from 'underscore';
+import {
+  defaultSubforumSorting,
+  SubforumSorting,
+  subforumSortings,
+  subforumSortingToResolverName,
+  subforumSortingTypes,
+} from '../../lib/collections/tags/subforumHelpers';
+import { VotesRepo } from '../repos';
+import { getTagBotUserId } from '../languageModels/autoTagCallbacks';
+import UserTagRels from '../../lib/collections/userTagRels/collection';
+import { createMutator, updateMutator } from '../vulcan-lib';
+
+// DEPRECATED: here for backwards compatibility
+export async function recordSubforumView(userId: string, tagId: string) {
+  const existingRel = await UserTagRels.findOne({userId, tagId});
+  if (existingRel) {
+    await updateMutator({
+      collection: UserTagRels,
+      documentId: existingRel._id,
+      set: {subforumLastVisitedAt: new Date()},
+      validate: false,
+    })
+  } else {
+    await createMutator({
+      collection: UserTagRels,
+      document: {userId, tagId, subforumLastVisitedAt: new Date()},
+      validate: false,
+    })
+  }
+}
+
+type SubforumFeedSort = {
+  posts: SubquerySortField<DbPost, keyof DbPost>,
+  comments: SubquerySortField<DbComment, keyof DbComment>,
+  sortDirection?: SortDirection,
+}
+
+const subforumFeedSortings: Record<SubforumSorting, SubforumFeedSort> = {
+  magic: {
+    posts: { sortField: "score" },
+    comments: { sortField: "score" },
+  },
+  new: {
+    posts: { sortField: "postedAt" },
+    comments: { sortField: "postedAt" },
+  },
+  old: {
+    posts: { sortField: "postedAt", sortDirection: "asc" },
+    comments: { sortField: "postedAt", sortDirection: "asc" },
+    sortDirection: "asc",
+  },
+  top: {
+    posts: { sortField: "baseScore" },
+    comments: { sortField: "baseScore" },
+  },
+  recentComments: {
+    posts: { sortField: "lastCommentedAt" },
+    comments: { sortField: "lastSubthreadActivity" },
+  },
+}
+
+const createSubforumFeedResolver = <SortKeyType>(sorting: SubforumFeedSort) => async ({
+  limit = 20, cutoff, offset, args: {tagId, af}, context,
+}: {
+  limit?: number,
+  cutoff?: SortKeyType,
+  offset?: number,
+  args: {tagId: string, af?: boolean},
+  context: ResolverContext,
+}) => mergeFeedQueries({
+  limit,
+  cutoff,
+  offset,
+  sortDirection: sorting.sortDirection,
+  subqueries: [
+    // Subforum posts
+    viewBasedSubquery({
+      type: "tagSubforumPosts",
+      collection: Posts,
+      ...sorting.posts,
+      context,
+      selector: {
+        [`tagRelevance.${tagId}`]: {$gte: 1},
+        hiddenRelatedQuestion: undefined,
+        shortform: undefined,
+        groupId: undefined,
+        ...(af ? {af: true} : undefined),
+      },
+    }),
+    // Subforum comments
+    viewBasedSubquery({
+      type: "tagSubforumComments",
+      collection: Comments,
+      ...sorting.comments,
+      context,
+      selector: {
+        $or: [{tagId: tagId, tagCommentType: "SUBFORUM"}, {relevantTagIds: tagId}],
+        topLevelCommentId: {$exists: false},
+        subforumStickyPriority: {$exists: false},
+        ...(af ? {af: true} : undefined),
+      },
+    }),
+    // Sticky subforum comments
+    viewBasedSubquery({
+      type: "tagSubforumStickyComments",
+      collection: Comments,
+      sortField: "subforumStickyPriority",
+      sortDirection: "asc",
+      sticky: true,
+      context,
+      selector: {
+        tagId,
+        tagCommentType: "SUBFORUM",
+        topLevelCommentId: {$exists: false},
+        subforumStickyPriority: {$exists: true},
+        ...(af ? {af: true} : undefined),
+      },
+    }),
+  ],
+});
+
+for (const sortBy of subforumSortings) {
+  const sorting = subforumFeedSortings[sortBy ?? defaultSubforumSorting] ?? subforumFeedSortings[defaultSubforumSorting];
+  defineFeedResolver({
+    name: `Subforum${subforumSortingToResolverName(sortBy)}Feed`,
+    args: "tagId: String!, af: Boolean",
+    cutoffTypeGraphQL: subforumSortingTypes[sortBy],
+    resultTypesGraphQL: `
+      tagSubforumPosts: Post
+      tagSubforumComments: Comment
+      tagSubforumStickyComments: Comment
+    `,
+    resolver: createSubforumFeedResolver(sorting),
+  });
+}
 
 addGraphQLSchema(`
   type TagUpdates {
@@ -28,10 +166,17 @@ addGraphQLSchema(`
     lastCommentedAt: Date
     added: Int
     removed: Int
+    users: [User!]
   }
 `);
 
 addGraphQLResolvers({
+  Mutation: {
+    async recordSubforumView(root: void, {userId, tagId}: {userId: string, tagId: string}, context: ResolverContext) {
+      await recordSubforumView(userId, tagId);
+      return "success";
+    }
+  },
   Query: {
     async TagUpdatesInTimeBlock(root: void, {before,after}: {before: Date, after: Date}, context: ResolverContext) {
       if (!before) throw new Error("Missing graphql parameter: before");
@@ -56,16 +201,24 @@ addGraphQLResolvers({
         postedAt: {$lt: before, $gt: after},
         topLevelCommentId: null,
         tagId: {$exists: true, $ne: null},
+        tagCommentType: "DISCUSSION",
       }).fetch();
+      
+      const userIds = _.uniq([...tagRevisions.map(tr => tr.userId), ...rootComments.map(rc => rc.userId)])
+      const usersAll = await loadByIds(context, "Users", userIds)
+      const users = await accessFilterMultiple(context.currentUser, Users, usersAll, context)
+      const usersById = keyBy(users, u => u._id);
       
       // Get the tags themselves
       const tagIds = _.uniq([...tagRevisions.map(r=>r.documentId), ...rootComments.map(c=>c.tagId)]);
-      const tagsUnfiltered = await context.loaders.Tags.loadMany(tagIds);
+      const tagsUnfiltered = await loadByIds(context, "Tags", tagIds);
       const tags = await accessFilterMultiple(context.currentUser, Tags, tagsUnfiltered, context);
       
       return tags.map(tag => {
         const relevantRevisions = _.filter(tagRevisions, rev=>rev.documentId===tag._id);
         const relevantRootComments = _.filter(rootComments, c=>c.tagId===tag._id);
+        const relevantUsersIds = _.uniq([...relevantRevisions.map(tr => tr.userId), ...relevantRootComments.map(rc => rc.userId)]);
+        const relevantUsers = _.map(relevantUsersIds, userId=>usersById[userId]);
         
         return {
           tag,
@@ -76,6 +229,7 @@ addGraphQLResolvers({
           lastCommentedAt: relevantRootComments.length>0 ? _.max(relevantRootComments, c=>c.lastSubthreadActivity).lastSubthreadActivity : null,
           added: sumBy(relevantRevisions, r=>r.changeMetrics.added),
           removed: sumBy(relevantRevisions, r=>r.changeMetrics.removed),
+          users: relevantUsers,
         };
       });
     },
@@ -106,8 +260,8 @@ addGraphQLResolvers({
 
       // Get the tags themselves, keyed by the id
       const tagIds = _.uniq(tagRevisions.map(r=>r.documentId));
-      const tagsUnfiltered = (await context.loaders.Tags.loadMany(tagIds));
-      const tags = (await accessFilterMultiple(context.currentUser, Tags, tagsUnfiltered, context)).reduce( (acc, tag) => {
+      const tagsUnfiltered = await loadByIds(context, "Tags", tagIds);
+      const tags = (await accessFilterMultiple(context.currentUser, Tags, tagsUnfiltered, context)).reduce( (acc: Partial<Record<string,DbTag>>, tag: DbTag) => {
         acc[tag._id] = tag;
         return acc;
       }, {});
@@ -127,6 +281,7 @@ addGraphQLResolvers({
   }
 });
 
+addGraphQLMutation('recordSubforumView(userId: String!, tagId: String!): String');
 addGraphQLQuery('TagUpdatesInTimeBlock(before: Date!, after: Date!): [TagUpdates!]');
 addGraphQLQuery('TagUpdatesByUser(userId: String!, limit: Int!, skip: Int!): [TagUpdates!]');
 addGraphQLQuery('RandomTag: Tag!');
@@ -155,7 +310,7 @@ augmentFieldsDict(Tags, {
       }> => {
         const contributionStatsByUserId = await getContributorsList(tag, version||null);
         const contributorUserIds = Object.keys(contributionStatsByUserId);
-        const contributorUsersUnfiltered = await context.loaders.Users.loadMany(contributorUserIds);
+        const contributorUsersUnfiltered = await loadByIds(context, "Users", contributorUserIds);
         const contributorUsers = await accessFilterMultiple(context.currentUser, Users, contributorUsersUnfiltered, context);
         const usersById = keyBy(contributorUsers, u => u._id);
   
@@ -182,6 +337,19 @@ augmentFieldsDict(Tags, {
   },
 });
 
+augmentFieldsDict(TagRels, {
+  autoApplied: {
+    resolveAs: {
+      type: "Boolean",
+      resolver: async (document: DbTagRel, args: void, context: ResolverContext) => {
+        const tagBotUserId = await getTagBotUserId(context);
+        if (!tagBotUserId) return false;
+        return (document.userId===tagBotUserId && document.voteCount===1);
+      },
+    },
+  },
+});
+
 async function getContributorsList(tag: DbTag, version: string|null): Promise<ContributorStatsList> {
   if (version)
     return await buildContributorsList(tag, version);
@@ -189,6 +357,30 @@ async function getContributorsList(tag: DbTag, version: string|null): Promise<Co
     return tag.contributionStats;
   else
     return await updateDenormalizedContributorsList(tag);
+}
+
+const getSelfVotes = async (tagRevisionIds: string[]): Promise<DbVote[]> => {
+  if (Votes.isPostgres()) {
+    const votesRepo = new VotesRepo();
+    return votesRepo.getSelfVotes(tagRevisionIds);
+  } else {
+    const selfVotes = await Votes.aggregate([
+      // All votes on relevant revisions
+      { $match: {
+        documentId: {$in: tagRevisionIds},
+        collectionName: "Revisions",
+        cancelled: false,
+        isUnvote: false,
+      }},
+      // Filtered by: is a self-vote
+      { $match: {
+        $expr: {
+          $in: ["$userId", "$authorIds"]
+        }
+      }}
+    ]);
+    return selfVotes.toArray();
+  }
 }
 
 async function buildContributorsList(tag: DbTag, version: string|null): Promise<ContributorStatsList> {
@@ -205,21 +397,7 @@ async function buildContributorsList(tag: DbTag, version: string|null): Promise<
     ],
   }).fetch();
   
-  const selfVotes = await Votes.aggregate([
-    // All votes on relevant revisions
-    { $match: {
-      documentId: {$in: tagRevisions.map(r=>r._id)},
-      collectionName: "Revisions",
-      cancelled: false,
-      isUnvote: false,
-    }},
-    // Filtered by: is a self-vote
-    { $match: {
-      $expr: {
-        $eq: ["$userId", "$authorId"]
-      }
-    }}
-  ]).toArray();
+  const selfVotes = await getSelfVotes(tagRevisions.map(r=>r._id));
   const selfVotesByUser = groupBy(selfVotes, v=>v.userId);
   const selfVoteScoreAdjustmentByUser = mapValues(selfVotesByUser,
     selfVotes => {
@@ -247,11 +425,11 @@ async function buildContributorsList(tag: DbTag, version: string|null): Promise<
       const selfVoteAdjustment = selfVoteScoreAdjustmentByUser[userId]
       const excludedPower = selfVoteAdjustment?.excludedPower || 0;
       const excludedVoteCount = selfVoteAdjustment?.excludedVoteCount || 0;
-      
+
       return {
         contributionScore: totalRevisionScore - excludedPower,
         numCommits: revisionsByThisUser.length,
-        voteCount: sumBy(revisionsByThisUser, r=>r.voteCount) - excludedVoteCount,
+        voteCount: sumBy(revisionsByThisUser, r=>r.voteCount ?? 0) - excludedVoteCount,
       };
     }
   );
@@ -262,19 +440,10 @@ export async function updateDenormalizedContributorsList(tag: DbTag): Promise<Co
   const contributionStats = await buildContributorsList(tag, null);
   
   if (JSON.stringify(tag.contributionStats) !== JSON.stringify(contributionStats)) {
-    await Tags.update({_id: tag._id}, {$set: {
+    await Tags.rawUpdateOne({_id: tag._id}, {$set: {
       contributionStats: contributionStats,
     }});
   }
   
   return contributionStats;
 }
-
-export async function updateDenormalizedHtmlAttributions(tag: DbTag) {
-  const html = await annotateAuthors(tag._id, "Tags", "description");
-  await Tags.update({_id: tag._id}, {$set: {
-    htmlWithContributorAnnotations: html,
-  }});
-  return html;
-}
-

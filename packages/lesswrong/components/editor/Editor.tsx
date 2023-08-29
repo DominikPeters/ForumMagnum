@@ -1,31 +1,45 @@
 import React, { Component, MutableRefObject } from 'react';
 import { registerComponent, Components } from '../../lib/vulcan-lib/components';
 import { userUseMarkdownPostEditor } from '../../lib/collections/users/helpers';
-import { editorStyles, postBodyStyles, answerStyles, commentBodyStyles } from '../../themes/stylePiping'
-import withUser from '../common/withUser';
+import { editorStyles, ckEditorStyles } from '../../themes/stylePiping'
 import classNames from 'classnames';
 import Input from '@material-ui/core/Input';
 import { EditorState, convertFromRaw, convertToRaw } from 'draft-js'
-import DraftJSEditor from './DraftJSEditor';
 import Select from '@material-ui/core/Select';
-import MenuItem from '@material-ui/core/MenuItem';
-import { editableCollectionsFieldOptions } from '../../lib/editor/make_editable';
-import * as _ from 'underscore';
+import { debounce } from 'underscore';
 import { isClient } from '../../lib/executionEnvironment';
-import { forumTypeSetting } from '../../lib/instanceSettings';
+import { forumTypeSetting, isEAForum } from '../../lib/instanceSettings';
+import type { CollaborativeEditingAccessLevel } from '../../lib/collections/posts/collabEditingPermissions';
+import FormLabel from '@material-ui/core/FormLabel';
+import {checkEditorValid} from './validation'
 
-const postEditorHeight = 250;
+const postEditorHeight = isEAForum ? 250 : 500;
 const questionEditorHeight = 150;
 const commentEditorHeight = 100;
+const quickTakesEditorHeight = 100;
+const commentMinimalistEditorHeight = 28;
 const postEditorHeightRows = 15;
 const commentEditorHeightRows = 5;
+const quickTakesEditorHeightRows = 5;
 
 export const styles = (theme: ThemeType): JssStyles => ({
+  root: {
+    position: 'relative'
+  },
   editor: {
     position: 'relative',
   },
+  label: {
+    display: 'block',
+    fontSize: 10,
+    marginBottom: 6,
+  },
+  markdownEditor: {
+    fontSize: "inherit",
+    fontFamily: "inherit",
+  },
   postBodyStyles: {
-    ...editorStyles(theme, postBodyStyles),
+    ...editorStyles(theme),
     cursor: "text",
     padding: 0,
     '& li .public-DraftStyleDefault-block': {
@@ -34,7 +48,7 @@ export const styles = (theme: ThemeType): JssStyles => ({
   },
 
   answerStyles: {
-    ...editorStyles(theme, answerStyles),
+    ...editorStyles(theme),
     cursor: "text",
     maxWidth:620,
     '& li .public-DraftStyleDefault-block': {
@@ -43,12 +57,32 @@ export const styles = (theme: ThemeType): JssStyles => ({
   },
 
   commentBodyStyles: {
-    ...editorStyles(theme, commentBodyStyles),
+    ...editorStyles(theme),
     cursor: "text",
     marginTop: 0,
     marginBottom: 0,
     padding: 0,
     pointerEvents: 'auto'
+  },
+  commentBodyStylesMinimalist: {
+    ...editorStyles(theme),
+    cursor: "text",
+    marginTop: 0,
+    marginBottom: 0,
+    padding: 0,
+    pointerEvents: 'auto',
+    '& textarea': {
+      marginTop: 0,
+      maxHeight: commentMinimalistEditorHeight,
+      '&:focus': {
+        maxHeight: '128px',
+      }
+    },
+    lineHeight: '1em',
+  },
+  
+  ckEditorStyles: {
+    ...ckEditorStyles(theme),
   },
   questionWidth: {
     width: 640,
@@ -71,6 +105,20 @@ export const styles = (theme: ThemeType): JssStyles => ({
       minHeight: commentEditorHeight,
     }
   },
+  quickTakesEditorHeight: {
+    minHeight: quickTakesEditorHeight,
+    '& .ck.ck-content': {
+      minHeight: quickTakesEditorHeight,
+    }
+  },
+  commentMinimalistEditorHeight: {
+    '& .ck-editor__editable': {
+      maxHeight: "300px"
+    },
+    '& .ck.ck-editor__editable_inline>:last-child': {
+      marginBottom: 0
+    },
+  },
   questionEditorHeight: {
     minHeight: questionEditorHeight,
     '& .ck.ck-content': {
@@ -88,9 +136,8 @@ export const styles = (theme: ThemeType): JssStyles => ({
     position: "absolute",
     top: 0,
     color: theme.palette.grey[500],
-    // Dark Magick
-    // https://giphy.com/gifs/psychedelic-art-phazed-12GGadpt5aIUQE
-    // Without this code, there's a weird thing where if you try to click the placeholder text, instead of focusing on the editor element, it... doesn't. This is overriding something habryka did to make spoiler tags work. We discussed this for awhile and this seemed like the best option.
+    whiteSpace: "pre-wrap",
+    // Without this pointerEvent code, there's a weird thing where if you try to click the placeholder text, instead of focusing on the editor element, it... doesn't. This is overriding something habryka did to make spoiler tags work. We discussed this for awhile and this seemed like the best option.
     pointerEvents: "none",
     "& *": {
       pointerEvents: "none",
@@ -107,7 +154,7 @@ export const styles = (theme: ThemeType): JssStyles => ({
     marginLeft: 8,
     marginRight: 8,
     ...theme.typography.commentStyle,
-    color: "rgba(0,0,0,.87)",
+    color: theme.palette.text.normal,
   },
   changeDescriptionInput: {
     flexGrow: 1,
@@ -116,27 +163,30 @@ export const styles = (theme: ThemeType): JssStyles => ({
     margin: `${theme.spacing.unit * 3}px 0`,
     color: theme.palette.error.main,
   },
+  // class for the animation transitions of the bot tips card
+  enteredBotTips: {
+    opacity: 1
+  },
 })
 
 const autosaveInterval = 3000; //milliseconds
-const checkImgErrsInterval = 500; //milliseconds
-const ckEditorName = forumTypeSetting.get() === 'EAForum' ? 'EA Forum Docs' : 'LessWrong Docs'
+const validationInterval = 500; //milliseconds
+export const ckEditorName = forumTypeSetting.get() === 'EAForum' ? 'EA Forum Docs' : 'LessWrong Docs'
 
 export type EditorTypeString = "html"|"markdown"|"draftJS"|"ckEditorMarkup";
 
 export const editorTypeToDisplay: Record<EditorTypeString,{name: string, postfix?:string}> = {
   html: {name: 'HTML', postfix: '[Admin Only]'},
-  ckEditorMarkup: {name: ckEditorName, postfix: '[Beta]'},
+  ckEditorMarkup: {name: ckEditorName},
   markdown: {name: 'Markdown'},
   draftJS: {name: 'Draft-JS'},
 }
 
-export const nonAdminEditors: EditorTypeString[] = ['ckEditorMarkup', 'markdown', 'draftJS']
+export const nonAdminEditors: EditorTypeString[] = ['ckEditorMarkup', 'markdown']
 export const adminEditors: EditorTypeString[] = ['html', 'ckEditorMarkup', 'markdown', 'draftJS']
 
 export const getUserDefaultEditor = (user: UsersCurrent|null): EditorTypeString => {
   if (userUseMarkdownPostEditor(user)) return "markdown"
-  if (user?.reenableDraftJs) return "draftJS"
   return "ckEditorMarkup"
 }
 
@@ -160,17 +210,37 @@ export interface SerializedEditorContents {
   value: any,
 }
 
+export interface FormProps {
+  commentMinimalistStyle?: boolean
+  editorHintText?: string
+  maxHeight?: boolean,
+}
+
 interface EditorProps {
   ref?: MutableRefObject<Editor|null>,
   currentUser: UsersCurrent|null,
+  label?: string,
   formType: "edit"|"new",
   documentId?: string,
+  collectionName: CollectionNameString,
+  fieldName: string,
   initialEditorType: EditorTypeString,
+  formProps?: FormProps,
+
+  // Whether to use the CkEditor collaborative editor, ie, this is the
+  // contents field of a shared post.
   isCollaborative: boolean,
+
+  // If isCollaborative is set, the access level the user should have
+  // with CkEditor. Otherwise ignored.
+  accessLevel?: CollaborativeEditingAccessLevel,
+
   value: EditorContents,
   onChange: (change: EditorChangeEvent)=>void,
+  onFocus?: (event: AnyBecauseTodo, editor: AnyBecauseTodo) => void,
   placeholder?: string,
   commentStyles?: boolean,
+  quickTakesStyles?: boolean,
   answerStyles?: boolean,
   questionStyles?: boolean,
   commentEditor?: boolean,
@@ -186,6 +256,7 @@ interface EditorComponentState {
   ckEditorReference: any,
   loading: boolean,
   markdownImgErrs: boolean
+  editorWarning?: string
 }
 
 export const getBlankEditorContents = (editorType: EditorTypeString): EditorContents => {
@@ -214,7 +285,7 @@ export const isBlank = (editorContents: EditorContents): boolean => {
   }
 }
 
-export const getInitialEditorContents = (value, document, fieldName, currentUser: UsersCurrent|null): EditorContents => {
+export const getInitialEditorContents = (value: any, document: any, fieldName: string, currentUser: UsersCurrent|null): EditorContents => {
   const initialValue = value?.originalContents || document?.[fieldName]?.originalContents;
   if (initialValue) {
     const result = deserializeEditorContents({
@@ -253,24 +324,42 @@ export const deserializeEditorContents = (contents: SerializedEditorContents): E
   }
 }
 
+/**
+ * Editor's `submitData` is called in `EditorFormComponent`.
+ * Curently, the only situation where we (validly) won't have a ckEditorReference is if a podcaster is editing a post to add a podcast episode to it.
+ * 
+ * Podcasters don't have permissions to edit the contents of a post, so the editor itself isn't rendered (due to the field permissions).
+ * 
+ * Simply submitting the post was causing an error in `submitData`, since it expects a ckEditorReference if we're attempting to submit the contents of the post.
+ * We just shouldn't try to submit post contents if we'll blow up by doing so (or know that we can't ahead of time).
+ */
+export const shouldSubmitContents = (editorRef: Editor) => {
+  const editorType = editorRef.props.value.type;
+  const ckEditorReference = editorRef.state.ckEditorReference;
+
+  if (editorType !== 'ckEditorMarkup') return true;
+  return !!ckEditorReference;
+}
+
 export class Editor extends Component<EditorProps,EditorComponentState> {
   throttledSetCkEditor: any
   debouncedCheckMarkdownImgErrs: any
+  debouncedValidateEditor: typeof this.validateCkEditor
 
   constructor(props: EditorProps) {
     super(props)
-    
-    const editorType = this.getCurrentEditorType()
+
     this.state = {
       updateType: 'minor',
       commitMessage: "",
       ckEditorReference: null,
       loading: true,
-      markdownImgErrs: false
+      markdownImgErrs: false,
     }
-    
-    this.throttledSetCkEditor = _.throttle((value) => this.setContents("ckEditorMarkup", value), autosaveInterval);
-    this.debouncedCheckMarkdownImgErrs = _.debounce(this.checkMarkdownImgErrs, checkImgErrsInterval);
+
+    this.throttledSetCkEditor = debounce((getValue: () => any) => this.setContents("ckEditorMarkup", getValue()), autosaveInterval);
+    this.debouncedCheckMarkdownImgErrs = debounce(this.checkMarkdownImgErrs, validationInterval);
+    this.debouncedValidateEditor = debounce(this.validateCkEditor, validationInterval);
   }
 
   async componentDidMount() {
@@ -279,14 +368,28 @@ export class Editor extends Component<EditorProps,EditorComponentState> {
     }
   }
 
-  submitData = (submission) => {
+  focus() {
+    this.state.ckEditorReference?.focus();
+  }
+
+  clear(currentUser: UsersCurrent | null) {
+    const editorType = getUserDefaultEditor(currentUser)
+    const contents = getBlankEditorContents(editorType);
+    this.props.onChange({
+      contents,
+      autosave: true,
+    });
+  }
+
+  submitData = async () => {
     let data: any = null
+    let dataWithDiscardedSuggestions
     const { updateType, commitMessage, ckEditorReference } = this.state
     const type = this.getCurrentEditorType()
     switch(this.props.value.type) {
       case "draftJS":
         const draftJS = this.props.value.value.getCurrentContent()
-        data = draftJS.hasText() ? convertToRaw(draftJS) : null
+        data = convertToRaw(draftJS);
         break
       case "markdown":
       case "html":
@@ -295,15 +398,23 @@ export class Editor extends Component<EditorProps,EditorComponentState> {
       case "ckEditorMarkup":
         if (!ckEditorReference) throw Error("Can't submit ckEditorMarkup without attached CK Editor")
         data = ckEditorReference.getData()
+        if (ckEditorReference.plugins.has("TrackChangesData"))  {
+          // Suggested-edits made by the TrackChanges plugin should be treated as private, until they've actually been 
+          // accepted by a post-author/editor. getDataWithDiscardedSuggestions is ckEditor's preferred tool for reliably
+          // stripping out all suggestions from the body.
+          dataWithDiscardedSuggestions = await ckEditorReference.plugins.get( 'TrackChangesData' ).getDataWithDiscardedSuggestions()
+        }
         break
     }
-    return data ? {
+
+    return {
       originalContents: {type, data},
       commitMessage, updateType,
-    } : undefined
+      dataWithDiscardedSuggestions
+    };
   }
-  
-  setContents = (editorType: EditorTypeString, value) => {
+
+  setContents = (editorType: EditorTypeString, value: string) => {
     switch (editorType) {
       case "html": {
         if (this.props.value.value === value)
@@ -349,6 +460,7 @@ export class Editor extends Component<EditorProps,EditorComponentState> {
 
   renderUpdateTypeSelect = () => {
     const { currentUser, formType, _classes: classes, hideControls } = this.props
+    const { MenuItem } = Components;
     if (hideControls) return null
     if (!currentUser || !currentUser.isAdmin || formType !== "edit") { return null }
     return <Select
@@ -372,7 +484,9 @@ export class Editor extends Component<EditorProps,EditorComponentState> {
     if (hideControls) return null
     
     return <div className={classes.changeDescriptionRow}>
-      <span className={classes.changeDescriptionLabel}>Edit summary (Briefly describe your changes):{" "}</span>
+      <span className={classes.changeDescriptionLabel}>
+        Edit summary (Briefly describe your changes):{" "}
+      </span>
       <Input
         className={classes.changeDescriptionInput}
         value={this.state.commitMessage}
@@ -397,38 +511,59 @@ export class Editor extends Component<EditorProps,EditorComponentState> {
     }
   }
 
-  renderPlaceholder = (showPlaceholder, collaboration) => {
+  renderPlaceholder = (showPlaceholder: boolean, isCollaborative: boolean) => {
     const { _classes: classes, placeholder } = this.props
+    const {className, contentType} = this.getBodyStyles();
 
     if (showPlaceholder) {
-      return <div className={classNames(this.getBodyStyles(), classes.placeholder, {[classes.placeholderCollaborationSpacing]: collaboration})}>
+      return <Components.ContentStyles contentType={contentType} className={classNames(className, classes.placeholder, {[classes.placeholderCollaborationSpacing]: isCollaborative})}>
         { placeholder }
-      </div>
+      </Components.ContentStyles>
     }
   }
 
-  isDocumentCollaborative = () => {
-    return this.props.isCollaborative;
-  }
-  
-
   renderCkEditor = (contents: EditorContents) => {
+    const { editorWarning } = this.state
     const { ckEditorReference } = this.state
-    const ckEditorValue = contents.value;
-    const { documentId, currentUser, commentEditor, formType } = this.props
+    const value = (typeof contents?.value === 'string') ? contents.value : ckEditorReference?.getData();
+    const {
+      documentId,
+      collectionName,
+      fieldName,
+      currentUser,
+      commentEditor,
+      formType,
+      isCollaborative,
+      onFocus,
+      _classes: classes,
+    } = this.props;
     const { Loading } = Components
     const CKEditor = commentEditor ? Components.CKCommentEditor : Components.CKPostEditor;
-    const value = ckEditorValue || ckEditorReference?.getData()
     if (!CKEditor) {
       return <Loading />
     } else {
       const editorProps = {
         data: value,
         documentId: documentId,
+        collectionName, fieldName,
         formType: formType,
         userId: currentUser?._id,
-        onChange: (event, editor) => this.throttledSetCkEditor(editor.getData()),
-        onInit: editor => this.setState({ckEditorReference: editor})
+        placeholder: this.props.placeholder ?? undefined,
+        onChange: (_event: AnyBecauseTodo, editor: AnyBecauseTodo) => {
+          this.debouncedValidateEditor(editor.model.document)
+          // If transitioning from empty to nonempty or nonempty to empty,
+          // bypass throttling. These cases don't have the performance
+          // implications that motivated having throttling in the first place,
+          // and this prevents a timing bug with form-clearing on submit.
+          if (!editor.data.model.hasContent(editor.model.document.getRoot('main'))) {
+            this.throttledSetCkEditor.cancel();
+            this.setContents("ckEditorMarkup", editor.getData());
+          } else {
+            this.throttledSetCkEditor(() => editor.getData())
+          }
+        },
+        onFocus,
+        onInit: (editor: any) => this.setState({ckEditorReference: editor})
       }
 
       // if document is shared with at least one user, it will render the collaborative ckEditor (note: this costs a small amount of money per document)
@@ -436,15 +571,22 @@ export class Editor extends Component<EditorProps,EditorComponentState> {
       // requires _id because before the draft is saved, ckEditor loses track of what you were writing when turning collaborate on and off (and, meanwhile, you can't actually link people to a shared draft before it's saved anyhow)
       // TODO: figure out a better solution to this problem.
 
-      const collaboration = this.isDocumentCollaborative()
-
-      return <div className={this.getHeightClass()}>
-        { this.renderPlaceholder(!value, collaboration)}
-        { collaboration
-          ? <Components.CKPostEditor key="ck-collaborate" { ...editorProps } collaboration />
+      return <div className={classNames(this.getHeightClass(), classes.ckEditorStyles)}>
+        {editorWarning && <Components.WarningBanner message={editorWarning} />}
+        {isCollaborative
+          ? <Components.CKPostEditor key="ck-collaborate"
+              {...editorProps}
+              isCollaborative={true}
+              accessLevel={this.props.accessLevel}
+            />
           : <CKEditor key="ck-default" { ...editorProps } />}
       </div>
     }
+  }
+
+  validateCkEditor = (document: AnyBecauseTodo) => {
+    const result = checkEditorValid(document, this.props.currentUser, this.props.commentEditor)
+    this.setState({editorWarning: result.message})
   }
 
   checkMarkdownImgErrs = () => {
@@ -460,25 +602,40 @@ export class Editor extends Component<EditorProps,EditorComponentState> {
     }
   }
 
+  getRows() {
+    const {commentStyles, quickTakesStyles} = this.props;
+    if (commentStyles) {
+      return commentEditorHeightRows;
+    }
+    if (quickTakesStyles) {
+      return quickTakesEditorHeightRows;
+    }
+    return postEditorHeightRows;
+  }
+
   renderPlaintextEditor = (contents: EditorContents) => {
-    const { markdownImgErrs } = this.state
-    const { _classes: classes, commentStyles, questionStyles } = this.props
+    const {markdownImgErrs} = this.state;
+    const {_classes: classes, questionStyles, formProps} = this.props;
+    const {contentType} = this.getBodyStyles();
     const value = contents.value || "";
     return <div>
       { this.renderPlaceholder(!value, false) }
-      <Input
-        className={classNames(classes.markdownEditor, this.getBodyStyles(), {[classes.questionWidth]: questionStyles})}
-        value={value}
-        onChange={(ev) => {
-          this.setContents(contents.type, ev.target.value);
-        }}
-        multiline={true}
-        rows={commentStyles ? commentEditorHeightRows : postEditorHeightRows}
-        rowsMax={99999}
-        fullWidth={true}
-        disableUnderline={true}
-      />
-    {markdownImgErrs && contents.type === 'markdown' && <Components.Typography component='aside' variant='body2' className={classes.markdownImgErrText}>
+      <Components.ContentStyles contentType={contentType}  className={classNames({[classes.commentBodyStylesMinimalist]: formProps?.commentMinimalistStyle})}>
+        <Input
+          className={classNames(classes.markdownEditor, this.getBodyStyles(), {[classes.questionWidth]: questionStyles, [classes.commentBodyStylesMinimalist]: formProps?.commentMinimalistStyle}
+          )}
+          value={value}
+          onChange={(ev) => {
+            this.setContents(contents.type, ev.target.value);
+          }}
+          multiline={true}
+          rows={this.getRows()}
+          rowsMax={99999}
+          fullWidth={true}
+          disableUnderline={true}
+        />
+      </Components.ContentStyles>
+      {markdownImgErrs && contents.type === 'markdown' && <Components.Typography component='aside' variant='body2' className={classes.markdownImgErrText}>
         Your Markdown contains at least one link to an image served over an insecure HTTP{' '}
         connection. You should update all links to images so that they are served over a{' '}
         secure HTTPS connection (i.e. the links should start with <em>https://</em>).
@@ -490,56 +647,89 @@ export class Editor extends Component<EditorProps,EditorComponentState> {
     const draftJSValue = contents.value;
     const { questionStyles, commentEditor, _classes: classes } = this.props
     const showPlaceholder = !(draftJSValue?.getCurrentContent && draftJSValue.getCurrentContent().hasText())
+    const {className, contentType} = this.getBodyStyles();
 
     return <div>
       { this.renderPlaceholder(showPlaceholder, false) }
-      {draftJSValue && <DraftJSEditor
+      {draftJSValue && <Components.ContentStyles contentType={contentType}><Components.DraftJSEditor
         editorState={draftJSValue}
-        onChange={(value) => this.setContents("draftJS", value)}
+        onChange={(value: string) => this.setContents("draftJS", value)}
         commentEditor={commentEditor||false}
         className={classNames(
-          this.getBodyStyles(),
+          className,
           this.getHeightClass(),
           {[classes.questionWidth]: questionStyles}
         )}
-      />}
+      /></Components.ContentStyles>}
     </div>
   }
-  
 
-  getBodyStyles = () => {
-    const { _classes: classes, commentStyles, answerStyles } = this.props
-    if (commentStyles && answerStyles) return classes.answerStyles
-    if (commentStyles) return classes.commentBodyStyles
-    return classes.postBodyStyles
+  getBodyStyles = (): {className: string, contentType: "comment"|"answer"|"post"} => {
+    const {
+      _classes: classes,
+      commentStyles,
+      answerStyles,
+      quickTakesStyles,
+    } = this.props
+    if (commentStyles && answerStyles) {
+      return {
+        className: classes.answerStyles,
+        contentType: "answer",
+      }
+    }
+    if (commentStyles) {
+      return {
+        className: classes.commentBodyStyles,
+        contentType: "comment",
+      }
+    }
+    if (quickTakesStyles) {
+      return {
+        className: classes.postBodyStyles,
+        contentType: "comment",
+      }
+    }
+    return {
+      className: classes.postBodyStyles,
+      contentType: "post",
+    }
   }
 
   getHeightClass = () => {
-    const { _classes: classes, commentStyles, questionStyles, maxHeight } = this.props
-    
+    const {
+      _classes: classes,
+      commentStyles,
+      quickTakesStyles,
+      questionStyles,
+      maxHeight,
+      formProps,
+    } = this.props;
+
+    if (formProps?.commentMinimalistStyle) {
+      return classes.commentMinimalistEditorHeight;
+    }
+
     return classNames({
       [classes.commentEditorHeight]: commentStyles,
+      [classes.quickTakesEditorHeight]: quickTakesStyles,
       [classes.questionEditorHeight]: questionStyles && !commentStyles,
       [classes.postEditorHeight]: !commentStyles && !questionStyles,
       [classes.maxHeight]: maxHeight,
     });
   }
 
-  focusOnEditor = () => {
-    // TODO
-  }
-
   render() {
     const { loading } = this.state
-    const { currentUser, initialEditorType, formType, _classes: classes } = this.props
-    const { Loading } = Components
-    const currentEditorType = this.getCurrentEditorType()
+    const { label, _classes: classes } = this.props
+    const { Loading, ContentStyles } = Components
+    const {className, contentType} = this.getBodyStyles();
 
     return <div>
-      <div className={classNames(classes.editor, this.getBodyStyles())}>
+      <ContentStyles className={classNames(classes.editor, className)} contentType={contentType}>
+        { label && <FormLabel className={classes.label}>{label}</FormLabel> }
         { loading ? <Loading/> : this.renderEditorComponent(this.props.value) }
         { this.renderUpdateTypeSelect() }
-      </div>
+      </ContentStyles>
       { this.renderCommitMessageInput() }
     </div>
   }

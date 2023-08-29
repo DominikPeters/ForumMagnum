@@ -1,10 +1,10 @@
 import React from 'react';
 import { registerComponent, Components, getFragment } from '../../lib/vulcan-lib';
 import { useLocation, useNavigation } from '../../lib/routeUtil'
-import { Tags } from '../../lib/collections/tags/collection';
 import { tagGetUrl } from '../../lib/collections/tags/helpers';
 import { useTagBySlug } from './useTag';
 import { useApolloClient } from "@apollo/client";
+import { taggingNameCapitalSetting } from '../../lib/instanceSettings';
 
 export const EditTagForm = ({tag, successCallback, cancelCallback}: {
   tag: TagFragment,
@@ -13,7 +13,7 @@ export const EditTagForm = ({tag, successCallback, cancelCallback}: {
 }) => {
   return <Components.WrappedSmartForm
     key={`${tag?._id}_${tag?.description?.version}`}
-    collection={Tags}
+    collectionName="Tags"
     documentId={tag._id}
     queryFragment={getFragment('TagEditFragment')}
     mutationFragment={getFragment('TagWithFlagsFragment')}
@@ -36,10 +36,10 @@ const EditTagPage = () => {
   
   return (
     <Components.SingleColumnSection>
-      <Components.SectionTitle title={`Edit Tag #${tag.name}`}/>
+      <Components.SectionTitle title={`Edit ${taggingNameCapitalSetting.get()} #${tag.name}`}/>
       <EditTagForm 
         tag={tag} 
-        successCallback={ async (tag) => {
+        successCallback={ async (tag: any) => {
           await client.resetStore()
           history.push({pathname: tagGetUrl(tag)})
         }}

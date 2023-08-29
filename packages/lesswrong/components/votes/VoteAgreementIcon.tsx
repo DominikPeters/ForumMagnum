@@ -1,64 +1,13 @@
-import { registerComponent } from '../../lib/vulcan-lib';
-import React, { useState } from 'react';
+import React from 'react';
+import { Components, registerComponent } from '../../lib/vulcan-lib';
+import { useTheme } from '../themes/useTheme';
 import classNames from 'classnames';
 import UpArrowIcon from '@material-ui/icons/KeyboardArrowUp';
 import CheckIcon from '@material-ui/icons/Check';
 import ClearIcon from '@material-ui/icons/Clear';
 import IconButton from '@material-ui/core/IconButton';
 import Transition from 'react-transition-group/Transition';
-import { withTheme } from '@material-ui/core/styles';
-
-// const styles = (theme: ThemeType): JssStyles => ({
-//   root: {
-//     color: theme.palette.grey[400],
-//     fontSize: 'inherit',
-//     width: 'initial',
-//     height: 'initial',
-//     padding: 0,
-//     '&:hover': {
-//       backgroundColor: 'transparent',
-//     }
-//   },
-//   smallArrow: {
-//     fontSize: '50%',
-//     opacity: 0.6
-//   },
-//   up: {},
-//   right: {
-//     transform: 'rotate(-270deg)',
-//   },
-//   down: {
-//     transform: 'rotate(-180deg)',
-//   },
-//   left: {
-//     transform: 'rotate(-90deg)',
-//   },
-//   bigArrow: {
-//     position: 'absolute',
-//     top: '-70%',
-//     fontSize: '82%',
-//     opacity: 0,
-//     transition: `opacity ${theme.voting.strongVoteDelay}ms cubic-bezier(0.74, -0.01, 1, 1) 0ms`,
-//   },
-//   bigArrowSolid: {
-//     fontSize: '65%',
-//     top: "-45%"
-//   },
-//   bigArrowCompleted: {
-//     fontSize: '90%',
-//     top: '-75%',
-//   },
-//   // Classes for the animation transitions of the bigArrow. See Transition component
-//   entering: {
-//     opacity: 1
-//   },
-//   entered: {
-//     opacity: 1
-//   },
-//   exiting: {
-//     transition: 'opacity 150ms cubic-bezier(0.74, -0.01, 1, 1) 0ms',
-//   }
-// })
+import { VoteColor, cssVoteColors } from './voteColors';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
@@ -163,26 +112,27 @@ const styles = (theme: ThemeType): JssStyles => ({
   exiting: {
     transition: 'opacity 150ms cubic-bezier(0.74, -0.01, 1, 1) 0ms',
   },
-  bigVoteIconStyling: { // necessary? unclear
-    marginLeft: 0
-  },
   iconsContainer: {
     position: 'relative',
     width: 25,
-    height: 20
+    height: 18
   },
   noClickCatch: {
     /* pointerEvents: none prevents elements under the IconButton from interfering with mouse
        events during a bigVote transition. */
     pointerEvents: 'none'
-  }
+  },
+  disabled: {
+    cursor: 'not-allowed',
+  },
 })
 
 export interface VoteArrowIconProps {
   solidArrow?: boolean,
   strongVoteDelay: number,
   orientation: "up"|"down"|"left"|"right",
-  color: "error"|"primary"|"secondary",
+  enabled?: boolean,
+  color: VoteColor,
   voted: boolean,
   eventHandlers: {
     handleMouseDown?: ()=>void,
@@ -194,12 +144,14 @@ export interface VoteArrowIconProps {
   bigVoted: boolean,
   bigVoteCompleted: boolean,
   alwaysColored: boolean,
-  theme?: ThemeType,
 }
 
-const VoteAgreementIcon = ({ solidArrow, strongVoteDelay, orientation, color, voted, eventHandlers, bigVotingTransition, bigVoted, bigVoteCompleted, alwaysColored, theme, classes }: VoteArrowIconProps & {
+const VoteAgreementIcon = ({ solidArrow, strongVoteDelay, orientation, enabled = true, color, voted, eventHandlers, bigVotingTransition, bigVoted, bigVoteCompleted, alwaysColored, classes }: VoteArrowIconProps & {
   classes: ClassesType
 }) => {
+  const { LWTooltip } = Components;
+
+  const theme = useTheme();
   const upOrDown = orientation === "left" ? "Downvote" : "Upvote"
   
   const PrimaryIcon =  (upOrDown === "Downvote") ? ClearIcon : CheckIcon
@@ -209,10 +161,14 @@ const VoteAgreementIcon = ({ solidArrow, strongVoteDelay, orientation, color, vo
   const bigVoteAccentStyling = (upOrDown === "Downvote") ? classes.smallArrowBigVoted : classes.smallCheckBigVoted
   const bigVoteCompletedStyling = (upOrDown === "Downvote") ? classes.bigClearCompleted : classes.bigCheckCompleted
   const bigVoteStyling = (upOrDown === "Downvote") ? classes.bigClear : classes.bigCheck
-  
+
+  if (!enabled) {
+    eventHandlers = {};
+  }
+
   return (
     <IconButton
-      className={classNames(classes.root)}
+      className={classNames(classes.root, {[classes.disabled]: !enabled})}
       onMouseDown={eventHandlers.handleMouseDown}
       onMouseUp={eventHandlers.handleMouseUp}
       onMouseOut={eventHandlers.clearState}
@@ -227,14 +183,14 @@ const VoteAgreementIcon = ({ solidArrow, strongVoteDelay, orientation, color, vo
         />
         <Transition in={(bigVotingTransition || bigVoted)} timeout={theme.voting.strongVoteDelay}>
           {(state) => (
-            <span className={classNames(classes.noClickCatch, classes.bigVoteIconStyling)}>
+            <>
               <BigVoteAccentIcon
                 className={classNames(bigVoteAccentStyling, classes.noClickCatch, {[classes.hideIcon]: !bigVoted})}
                 color={voted ? color : 'inherit'}
                 viewBox='6 6 12 12'
               />
               <PrimaryIcon
-                style={bigVoteCompleted ? {color: theme.palette[color].light} : {}}
+                style={bigVoteCompleted ? {color: cssVoteColors[color]} : {}}
                 className={classNames(bigVoteStyling, classes.noClickCatch, {
                   [bigVoteCompletedStyling]: bigVoteCompleted,
                   // [classes.bigCheckCompleted]: bigVoteCompleted,
@@ -243,7 +199,7 @@ const VoteAgreementIcon = ({ solidArrow, strongVoteDelay, orientation, color, vo
                 color={(bigVoted || bigVoteCompleted) ? color : 'inherit'}
                 viewBox='6 6 12 12'
               />
-            </span>)}
+            </>)}
         </Transition>
       </span>
     </IconButton>

@@ -17,13 +17,14 @@ const SingleLineReviewsList = () => {
           <Components.CommentsNode
             treeOptions={{
               condensed: true,
-              singleLineLargePreview: true,
+              singleLineCollapse: true,
               hideSingleLineMeta: true,
               singleLinePostTitle: true,
-              post: comment.post || undefined
+              showPostTitle: true,
+              post: comment.post || undefined,
+              forceSingleLine: true
             }}
             comment={comment}
-            forceSingleLine
           />
         </div>
       )}

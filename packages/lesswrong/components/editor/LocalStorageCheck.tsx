@@ -1,68 +1,68 @@
 import React, { useEffect, useState } from 'react';
-import { registerComponent } from '../../lib/vulcan-lib';
-import { SerializedEditorContents, EditorChangeEvent, deserializeEditorContents, EditorContents, nonAdminEditors, adminEditors } from './Editor';
+import { Components, registerComponent } from '../../lib/vulcan-lib';
+import { SerializedEditorContents, deserializeEditorContents, EditorContents, nonAdminEditors, adminEditors } from './Editor';
 import { useCurrentUser } from '../common/withUser';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
-    ...theme.typography.commentStyle,
-    color: "rgba(0,0,0,.87)",
-    paddingBottom: 12,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    columnGap: 10,
+    fontFamily: theme.typography.commentStyle.fontFamily,
+    color: theme.palette.text.primaryAlert,
+    fontSize: 14,
+    lineHeight: '18px',
+    fontWeight: '500',
+    padding: '10px 8px',
+    borderRadius: 4,
+    backgroundColor: theme.palette.background.primaryTranslucent,
+    marginBottom: 8,
+    
+    "& a": {
+      textDecoration: "underline",
+      '&:hover': {
+        color: theme.palette.primary.dark,
+        opacity: 1
+      }
+    }
   },
   restoreLink: {
-    color: theme.palette.lwTertiary.main,
+    color: theme.palette.text.primaryAlert,
   },
+  closeIcon: {
+    fontSize: 16,
+    cursor: 'pointer',
+    '&:hover': {
+      color: theme.palette.primary.dark,
+    }
+  }
 });
 
 type RestorableState = {
   savedDocument: SerializedEditorContents,
 }
+const restorableStateHasMetadata = (savedState: any) => {
+  return typeof savedState === "object"
+}
 const getRestorableState = (currentUser: UsersCurrent|null, getLocalStorageHandlers: (editorType?: string) => any): RestorableState|null => {
   const editors = currentUser?.isAdmin ? adminEditors : nonAdminEditors
   
-  for (let editorType of editors) {
+  for (const editorType of editors) {
     const savedState = getLocalStorageHandlers(editorType).get();
     if (savedState) {
+      if (restorableStateHasMetadata(savedState)) {
+        return {
+          savedDocument: savedState,
+        }
+      }
       return {
-        savedDocument: savedState,
+        savedDocument: {type: editorType, value: savedState}
       }
     }
   }
   return null;
 };
-
-/*export const getContentsFromLocalStorage = (editorType: string): EditorContents|null => {
-  const savedState = this.getLocalStorageHandlers(editorType).get();
-  if (!savedState) return null;
-
-  if (editorType === "draftJS") {
-    try {
-      // eslint-disable-next-line no-console
-      console.log("Restoring saved document state: ", savedState);
-      const contentState = convertFromRaw(savedState)
-      if (contentState.hasText()) {
-        return {
-          draftJSValue: EditorState.createWithContent(contentState)
-        };
-      } else {
-        // eslint-disable-next-line no-console
-        console.log("Not restoring empty document state: ", contentState)
-      }
-    } catch(e) {
-      // eslint-disable-next-line no-console
-      console.error(e)
-    }
-    return null;
-  } else {
-    return {
-      draftJSValue:  editorType === "draftJS"        ? savedState : null,
-      markdownValue: editorType === "markdown"       ? savedState : null,
-      htmlValue:     editorType === "html"           ? savedState : null,
-      ckEditorValue: editorType === "ckEditorMarkup" ? savedState : null
-    }
-  }
-}*/
-
 
 const LocalStorageCheck = ({getLocalStorageHandlers, onRestore, classes}: {
   getLocalStorageHandlers: (editorType?: string) => any,
@@ -84,17 +84,20 @@ const LocalStorageCheck = ({getLocalStorageHandlers, onRestore, classes}: {
     return null;
   
   return <div className={classes.root}>
-    You have an autosaved version of this document.{" "}
-    <a className={classes.restoreLink} onClick={() => {
-      setRestorableState(null);
-      const restored = deserializeEditorContents(restorableState.savedDocument);
-      if (restored) {
-        onRestore(restored);
-      } else {
-        // eslint-disable-next-line no-console
-        console.error("Error restoring from localStorage");
-      }
-    }}>Restore</a>
+    <div>
+      You have autosaved text.{" "}
+      <a className={classes.restoreLink} onClick={() => {
+        setRestorableState(null);
+        const restored = deserializeEditorContents(restorableState.savedDocument);
+        if (restored) {
+          onRestore(restored);
+        } else {
+          // eslint-disable-next-line no-console
+          console.error("Error restoring from localStorage");
+        }
+      }}>Restore</a>
+    </div>
+    <Components.ForumIcon icon="Close" className={classes.closeIcon} onClick={() => setRestorableState(null)}/>
   </div>
 }
 

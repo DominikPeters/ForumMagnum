@@ -1,18 +1,13 @@
 import { arrayOfForeignKeysField, denormalizedCountOfReferences } from '../../utils/schemaUtils'
 import * as _ from 'underscore';
+import { forumTypeSetting } from '../../instanceSettings';
 
 const schema: SchemaType<DbConversation> = {
-  createdAt: {
-    optional: true,
-    type: Date,
-    viewableBy: ['members'],
-    onInsert: (document) => new Date(),
-  },
   title: {
     type: String,
-    viewableBy: ['members'],
-    editableBy: ['members'],
-    insertableBy: ['members'],
+    canRead: ['members'],
+    canUpdate: ['members'],
+    canCreate: ['members'],
     optional: true,
     label: "Conversation Title"
   },
@@ -23,9 +18,9 @@ const schema: SchemaType<DbConversation> = {
       collectionName: "Users",
       type: "User"
     }),
-    viewableBy: ['members'],
-    insertableBy: ['members'],
-    editableBy: ['members'],
+    canRead: ['members'],
+    canCreate: ['members'],
+    canUpdate: ['members'],
     optional: true,
     control: "UsersListEditor",
     label: "Participants",
@@ -38,7 +33,7 @@ const schema: SchemaType<DbConversation> = {
   latestActivity: {
     type: Date,
     denormalized: true,
-    viewableBy: ['members'],
+    canRead: ['members'],
     onInsert: (document) => {
       return new Date(); // if this is an insert, set latestActivity to current timestamp
     },
@@ -46,10 +41,11 @@ const schema: SchemaType<DbConversation> = {
   },
   af: {
     type: Boolean,
-    viewableBy: ['guests'],
-    insertableBy: ['members'],
-    editableBy: ['admins'],
+    canRead: ['guests'],
+    canCreate: ['members'],
+    canUpdate: ['admins'],
     optional: true,
+    hidden: !['LessWrong', 'AlignmentForum'].includes(forumTypeSetting.get())
   },
   messageCount: {
     ...denormalizedCountOfReferences({
@@ -59,7 +55,15 @@ const schema: SchemaType<DbConversation> = {
       foreignTypeName: "message",
       foreignFieldName: "conversationId"
     }),
-    viewableBy: ['guests'],
+    canRead: ['guests'],
+  },
+  moderator: {
+    type: Boolean,
+    canRead: ['admins', 'sunshineRegiment'],
+    canCreate: ['admins', 'sunshineRegiment'],
+    canUpdate: ['admins', 'sunshineRegiment'],
+    optional: true,
+    nullable: true
   },
   archivedByIds: {
     ...arrayOfForeignKeysField({
@@ -70,9 +74,9 @@ const schema: SchemaType<DbConversation> = {
     }),
     optional: true,
     hidden: true,
-    viewableBy: ['guests'],
-    insertableBy: ['members'],
-    editableBy: ['members'],
+    canRead: ['guests'],
+    canCreate: ['members'],
+    canUpdate: ['members'],
     // Allow users to only update their own archived status, this has some potential concurrency problems,
     // but I don't expect this to ever come up, and it fails relatively gracefully in case one does occur
     onUpdate: ({data, currentUser, oldDocument}) => {

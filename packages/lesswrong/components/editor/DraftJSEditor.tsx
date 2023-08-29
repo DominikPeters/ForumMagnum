@@ -1,4 +1,5 @@
 import React, { Component } from 'react';
+import { registerComponent } from '../../lib/vulcan-lib';
 import Editor, { composeDecorators } from 'draft-js-plugins-editor';
 import createInlineToolbarPlugin, { Separator } from 'draft-js-inline-toolbar-plugin';
 import createImagePlugin from 'draft-js-image-plugin';
@@ -18,7 +19,7 @@ import createLinkifyPlugin from './draftjs-plugins/linkifyPlugin'
 import ImageButton from './draftjs-plugins/image/ImageButton';
 import { Map } from 'immutable';
 import { createBlockStyleButton, ItalicButton, BoldButton, UnderlineButton, BlockquoteButton } from 'draft-js-buttons';
-import NoSsr from '@material-ui/core/NoSsr';
+import NoSSR from 'react-no-ssr';
 import { isClient } from '../../lib/executionEnvironment';
 import * as _ from 'underscore';
 
@@ -26,14 +27,14 @@ const styleMap = (theme: ThemeType) => ({
   'CODE': theme.typography.code
 })
 
-function customBlockStyleFn(contentBlock) {
+function customBlockStyleFn(contentBlock: AnyBecauseTodo) {
   const type = contentBlock.getType();
   if (type === 'spoiler') {
     return 'spoiler';
   }
 }
 
-const initializePlugins = (commentEditor) => {
+const initializePlugins = (commentEditor: AnyBecauseTodo) => {
   const HeadlineOneButton = createBlockStyleButton({
     blockType: 'header-one',
     children: (
@@ -62,6 +63,8 @@ const initializePlugins = (commentEditor) => {
     focusPlugin.decorator,
   );
 
+  // FIXME: `decorator` was never getting used in createDividerPlugin, not clear why it's getting passed in
+  // @ts-ignore
   const dividerPlugin = createDividerPlugin({decorator});
 
   const toolbarButtons = [
@@ -130,7 +133,7 @@ const initializePlugins = (commentEditor) => {
 }
 
 interface DraftJSEditorProps {
-  theme: ThemeType,
+  theme?: ThemeType,
   editorState: any,
   onChange: any,
   commentEditor: boolean,
@@ -163,7 +166,7 @@ class DraftJSEditor extends Component<DraftJSEditorProps,{}> {
 
     return (
       <div>
-        <NoSsr>
+        <NoSSR>
         <div className={this.props.className} onClick={this.focus}>
           <Editor
             editorState={editorState}
@@ -171,15 +174,15 @@ class DraftJSEditor extends Component<DraftJSEditorProps,{}> {
             spellCheck
             plugins={this.plugins}
             keyBindingFn={myKeyBindingFn}
-            customStyleMap={styleMap(theme)}
+            customStyleMap={styleMap(theme!)}
             blockStyleFn={customBlockStyleFn}
             blockRenderMap={blockRenderMap}
-            ref={(ref) => { this._ref = ref }}
+            ref={(ref: AnyBecauseTodo) => { this._ref = ref }}
           />
         </div>
         <InlineToolbar />
         <AlignmentTool />
-        </NoSsr>
+        </NoSSR>
       </div>
     )
   }
@@ -191,4 +194,11 @@ const blockRenderMap = Map({
   }
 });
 
-export default withTheme()(DraftJSEditor);
+const DraftJSEditorComponent = registerComponent("DraftJSEditor", DraftJSEditor, {
+  hocs: [withTheme()]
+});
+declare global {
+  interface ComponentTypes {
+    DraftJSEditor: typeof DraftJSEditorComponent
+  }
+}

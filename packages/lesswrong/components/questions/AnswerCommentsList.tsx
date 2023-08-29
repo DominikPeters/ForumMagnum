@@ -43,8 +43,7 @@ const styles = (theme: ThemeType): JssStyles => ({
 
 export const ABRIDGE_COMMENT_COUNT = 500;
 
-const AnswerCommentsList = ({lastEvent, classes, post, parentAnswer}: {
-  lastEvent?: any,
+const AnswerCommentsList = ({classes, post, parentAnswer}: {
   classes: ClassesType,
   post: PostsList,
   parentAnswer: CommentsList,
@@ -65,9 +64,7 @@ const AnswerCommentsList = ({lastEvent, classes, post, parentAnswer}: {
   });
   
   const highlightDate =
-    (lastEvent?.properties?.createdAt
-      && new Date(lastEvent.properties.createdAt))
-    || (post?.lastVisitedAt
+    (post?.lastVisitedAt
       && new Date(post.lastVisitedAt))
     || new Date();
 
@@ -125,6 +122,7 @@ const AnswerCommentsList = ({lastEvent, classes, post, parentAnswer}: {
         <CommentsList
           treeOptions={{
             postPage: true,
+            showCollapseButtons: true,
             post: post,
             highlightDate: highlightDate,
           }}

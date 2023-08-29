@@ -1,10 +1,7 @@
 import React, {useCallback} from 'react';
 import PropTypes from 'prop-types';
-import { makeSortableListComponent } from '../forms/sortableList';
+import { makeSortableListComponent } from './sortableList';
 import { registerComponent, Components } from '../../lib/vulcan-lib';
-import { withStyles, createStyles } from '@material-ui/core/styles';
-import { useCurrentUser } from '../common/withUser';
-import * as _ from 'underscore';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
@@ -20,10 +17,10 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
 });
 
-const SortableList = makeSortableListComponent({
+export const SortableList = makeSortableListComponent({
   renderItem: ({contents, removeItem, classes}) => {
     return <li className={classes.item}>
-      <Components.SingleUsersItemWrapper documentId={contents} removeItem={removeItem} />
+      <Components.SingleUsersItem userId={contents} removeItem={removeItem} />
     </li>
   }
 });
@@ -33,7 +30,7 @@ const UsersListEditor = ({value, path, label, classes}: {
   path: string,
   label: string,
   classes: ClassesType,
-}, context) => {
+}, context: any) => {
   const { updateCurrentValues } = context;
   
   const setValue = useCallback((newValue: string[]) => {

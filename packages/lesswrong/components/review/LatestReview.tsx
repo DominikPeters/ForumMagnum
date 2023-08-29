@@ -7,7 +7,7 @@ import { commentGetPageUrlFromIds } from '../../lib/collections/comments/helpers
 import { useHover } from '../common/withHover';
 import { AnalyticsContext } from '../../lib/analyticsEvents';
 
-const styles = theme => ({
+const styles = (theme: ThemeType): JssStyles => ({
   root: {
     flexGrow: 1,
     flexShrink: 1,
@@ -22,14 +22,17 @@ const styles = theme => ({
   },
   lastReview: {
     ...theme.typography.commentStyle,
-    color: theme.palette.grey[600]
+    color: theme.palette.grey[600],
+    position: "relative",
+    top: -2
   },
   title: {
-    color: theme.palette.primary.main
+    color: theme.palette.primary.main,
+    display: "block"
   }
 })
 
-const LatestReview = ({classes}) => {
+const LatestReview = ({classes}: { classes: ClassesType }) => {
   const { PostsPreviewTooltipSingleWithComment, LWPopper, ErrorBoundary } = Components
 
   const { results: commentResults } = useMulti({
@@ -54,12 +57,7 @@ const LatestReview = ({classes}) => {
         open={hover}
         anchorEl={anchorEl}
         placement="bottom-start"
-        modifiers={{
-          flip: {
-            behavior: ["bottom-start"],
-            boundariesElement: 'viewport'
-          }
-        }}
+        allowOverflow
       >
         <span className={classes.preview}>{<PostsPreviewTooltipSingleWithComment postId={comment.postId} commentId={comment._id}/>}</span>
       </LWPopper>

@@ -1,74 +1,84 @@
 import React from 'react';
 import PropTypes from 'prop-types';
-import { registerComponent, getSiteUrl } from '../../lib/vulcan-lib';
+import { Components, registerComponent, getSiteUrl } from '../../lib/vulcan-lib';
 import Button from '@material-ui/core/Button';
 import classNames from 'classnames';
 import { useCurrentUser } from "../common/withUser";
 import { useTracking } from "../../lib/analyticsEvents";
-import {forumTypeSetting} from "../../lib/instanceSettings";
+import {forumTitleSetting, forumTypeSetting} from "../../lib/instanceSettings";
+import { forumSelect } from '../../lib/forumTypeUtils';
 
-const styles = (theme: ThemeType): JssStyles => ({
-  formSubmit: {
-    display: "flex",
-    justifyContent: "flex-end",
-    flexWrap: "wrap",
-  },
+export const styles = (theme: ThemeType): JssStyles => ({
   formButton: {
-    paddingBottom: 4,
     fontFamily: theme.typography.commentStyle.fontFamily,
-    fontSize: 16,
+    fontSize: isEAForum ? 14 : 16,
     marginLeft: 5,
-    fontWeight: 500,
-    "&:hover": {
-      background: "rgba(0,0,0, 0.05)",
-    }
+    ...(isEAForum ? {
+      textTransform: 'none',
+    } : {
+      paddingBottom: 4,
+      fontWeight: 500,
+      "&:hover": {
+        background: theme.palette.buttons.hoverGrayHighlight,
+      }
+    })
   },
-
   secondaryButton: {
-    color: "rgba(0,0,0,0.4)",
+    ...(isEAForum ? {
+      color: theme.palette.grey[680],
+      padding: '8px 12px'
+    } : {
+      color: theme.palette.text.dim40,
+    })
   },
-
   submitButtons: {
     marginLeft: 'auto'
   },
-  
   submitButton: {
-    color: theme.palette.secondary.main,
+    ...(isEAForum ? {
+      backgroundColor: theme.palette.buttons.alwaysPrimary,
+      color: theme.palette.text.alwaysWhite,
+      boxShadow: 'none',
+      marginLeft: 10,
+    } : {
+      color: theme.palette.secondary.main
+    })
   },
   cancelButton: {
-    flexGrow:1,
-    [theme.breakpoints.up('md')]: {
-      display: "none"
-    }
   },
   draft: {
   },
   feedback: {
-    
   }
 });
 
+const isEAForum = forumTypeSetting.get() === "EAForum"
 
-interface PostSubmitProps {
-  submitLabel?: string,
-  cancelLabel?: string,
+export type PostSubmitProps = FormButtonProps & {
   saveDraftLabel?: string,
   feedbackLabel?: string,
-  cancelCallback: any,
   document: PostsPage,
-  collectionName: string,
   classes: ClassesType
 }
 
+const requestFeedbackKarmaLevel = forumSelect({
+  EAForum: 200,
+  default: 100,
+})
 
 const PostSubmit = ({
-  submitLabel = "Submit", cancelLabel = "Cancel", saveDraftLabel = "Save as draft", feedbackLabel = "Request Feedback", cancelCallback, document, collectionName, classes
-}: PostSubmitProps, { updateCurrentValues }) => {
-  
+  submitLabel = "Submit",
+  cancelLabel = "Cancel",
+  saveDraftLabel = "Save as draft",
+  feedbackLabel = "Request Feedback",
+  cancelCallback, document, collectionName, classes
+}: PostSubmitProps, { updateCurrentValues }: any) => {
   const currentUser = useCurrentUser();
   const { captureEvent } = useTracking();
   if (!currentUser) throw Error("must be logged in to post")
-  
+
+  const { LWTooltip } = Components;
+
   return (
     <React.Fragment>
       {!!cancelCallback &&
@@ -85,24 +95,28 @@ const PostSubmit = ({
         </div>
       }
       <div className={classes.submitButtons}>
-        {/* TODO: Re-enable on the EA Forum once we hire Bbron */}
-        {forumTypeSetting.get() !== "EAForum" && currentUser.karma >= 100 && document.draft!==false && <Button type="submit"//treat as draft when draft is null
-          className={classNames(classes.formButton, classes.secondaryButton, classes.feedback)}
-          onClick={() => {
-            captureEvent("feedbackRequestButtonClicked")
-            if (!!document.title) {
-              updateCurrentValues({draft: true});
-              // eslint-disable-next-line
-              (window as any).Intercom(
-                'trackEvent',
-                'requested-feedback',
-                {title: document.title, _id: document._id, url: getSiteUrl() + "posts/" + document._id}
-              )
-            }
-          }}
+        {currentUser.karma >= requestFeedbackKarmaLevel && document.draft!==false && <LWTooltip
+          // EA Forum title is Effective Altruism Forum, which is unecessarily long
+          title={`Request feedback from the ${isEAForum ? "EA Forum" : forumTitleSetting.get()} team.`}
         >
-          {feedbackLabel}
-        </Button>}
+          <Button type="submit"//treat as draft when draft is null
+            className={classNames(classes.formButton, classes.secondaryButton, classes.feedback)}
+            onClick={() => {
+              captureEvent("feedbackRequestButtonClicked")
+              if (!!document.title) {
+                updateCurrentValues({draft: true});
+                // eslint-disable-next-line
+                window.Intercom(
+                  'trackEvent',
+                  'requested-feedback',
+                  {title: document.title, _id: document._id, url: getSiteUrl() + "posts/" + document._id}
+                )
+              }
+            }}
+          >
+            {feedbackLabel}
+          </Button>
+        </LWTooltip>}
         <Button type="submit"
           className={classNames(classes.formButton, classes.secondaryButton, classes.draft)}
           onClick={() => updateCurrentValues({draft: true})}
@@ -113,7 +127,10 @@ const PostSubmit = ({
           type="submit"
           onClick={() => collectionName === "Posts" && updateCurrentValues({draft: false})}
           className={classNames("primary-form-submit-button", classes.formButton, classes.submitButton)}
-          variant={collectionName=="users" ? "outlined" : undefined}
+          {...(isEAForum ? {
+            variant: "contained",
+            color: "primary",
+          } : {})}
         >
           {submitLabel}
         </Button>

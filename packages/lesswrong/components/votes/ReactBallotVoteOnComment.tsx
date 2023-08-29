@@ -1,12 +1,13 @@
 import React from 'react';
 import { Components, registerComponent } from '../../lib/vulcan-lib';
 import { CommentVotingComponentProps, reactBallotAxes, ReactBallotAxis, ReactBallotStandaloneReaction, reactBallotStandaloneReactions } from '../../lib/voting/votingSystems';
-import { useVote, VotingProps } from './withVote';
+import { useVote } from './withVote';
 import { useHover } from '../common/withHover';
 import { useDialog } from '../common/withDialog';
 import { useCurrentUser } from '../common/withUser';
 import classNames from 'classnames';
 import chunk from 'lodash/chunk';
+import { VotingProps } from './votingProps';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
@@ -37,7 +38,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     cursor: "pointer",
     
     "&:hover": {
-      background: "#e8e8e8",
+      background: theme.palette.grey[250],
     },
   },
   buttonLabel: {
@@ -54,7 +55,7 @@ const styles = (theme: ThemeType): JssStyles => ({
   badVersion: {
   },
   voteButtonSelected: {
-    background: "#eee",
+    background: theme.palette.grey[200],
   },
   divider: {
     height: 12,
@@ -66,7 +67,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     paddingTop: 8,
     borderRadius: 3,
     marginRight: 4,
-    border: "1px solid #ddd",
+    border: theme.palette.border.extraFaint,
   },
   
   axisScores: {
@@ -81,7 +82,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     paddingTop: 8,
     borderRadius: 3,
     marginRight: 4,
-    border: "1px solid #ddd",
+    border: theme.palette.border.extraFaint,
   },
   scoreNumber: {
     marginRight: 6,
@@ -142,6 +143,7 @@ const AxisDirectionButton = ({axis, voteProps, direction, classes}: {
       orientation={direction}
       color={direction==="up" ? "secondary" : "error"}
       upOrDown={direction==="up" ? "Upvote" : "Downvote"}
+      enabled
       {...voteProps}
     />
   );

@@ -10,18 +10,22 @@ registerFragment(`
     }
     lastActivity
     name
+    nameInAnotherLanguage
     isOnline
     location
     googleLocation
     mongoLocation
     types
+    categories
     contactInfo
     facebookLink
     facebookPageLink
     meetupLink
+    slackLink
     website
-    inactive
     bannerImageId
+    inactive
+    deleted
   }
 `);
 

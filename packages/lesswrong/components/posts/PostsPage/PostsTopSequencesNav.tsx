@@ -18,10 +18,10 @@ const styles = (theme: ThemeType): JssStyles => ({
     display: 'inline-block',
     fontSize: 22,
     verticalAlign: '-webkit-baseline-middle',
-    fontVariant: 'small-caps',
     fontFamily: theme.typography.uiSecondary.fontFamily,
     lineHeight: '24px',
-    color: 'rgba(0,0,0,0.5)',
+    color: theme.palette.text.dim,
+    ...theme.typography.smallCaps,
   }
 })
 
@@ -29,6 +29,7 @@ const PostsTopSequencesNav = ({post, classes}: {
   post: PostSequenceNavigation,
   classes: ClassesType,
 }) => {
+  const { LWTooltip, SequencesHoverOver, SequencesNavigationLink } = Components 
   const { history } = useNavigation();
   const currentUser = useCurrentUser();
 
@@ -62,16 +63,18 @@ const PostsTopSequencesNav = ({post, classes}: {
   
   return (
     <div className={classes.root}>
-      <Components.SequencesNavigationLink
+      <SequencesNavigationLink
         post={post.prevPost}
         direction="left" />
 
-      <div className={classes.title}>
-        {post.sequence.draft && "[Draft] "}
-        <Link to={sequenceGetPageUrl(post.sequence)}>{ post.sequence.title }</Link>
-      </div>
+      <LWTooltip tooltip={false} title={<SequencesHoverOver sequence={post.sequence} />} clickable={true}>
+        <div className={classes.title}>
+          {post.sequence.draft && "[Draft] "}
+          <Link to={sequenceGetPageUrl(post.sequence)}>{ post.sequence.title }</Link>
+        </div>
+      </LWTooltip>
 
-      <Components.SequencesNavigationLink
+      <SequencesNavigationLink
         post={post.nextPost}
         direction="right" />
     </div>

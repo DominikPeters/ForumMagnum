@@ -8,20 +8,21 @@ import Button from '@material-ui/core/Button';
 import Checkbox from '@material-ui/core/Checkbox';
 import Input from '@material-ui/core/Input';
 import Geosuggest from 'react-geosuggest';
+import { pickBestReverseGeocodingResult } from '../../lib/geocoding';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
     marginBottom: theme.spacing.unit*4,
     position: "relative",
     minHeight: 58,
-    backgroundColor: "rgba(253,253,253)",
+    backgroundColor: theme.palette.panelBackground.recentDiscussionThread,
     
     padding: 16,
     ...theme.typography.body2,
     
-    border: "1px solid #aaa",
+    border: `1px solid ${theme.palette.grey["A200"]}`,
     borderRadius: 10,
-    boxShadow: "5px 5px 5px rgba(0,0,0,20%)",
+    boxShadow: theme.palette.boxShadow.recentDiscussionMeetupsPoke,
     
     marginLeft: "auto",
     marginRight: "auto",
@@ -30,7 +31,7 @@ const styles = (theme: ThemeType): JssStyles => ({
   
   locationInput: {
     display: "inline-block",
-    borderBottom: "1px solid rgba(0,0,0,.87)",
+    borderBottom: `1px solid ${theme.palette.text.normal}`,
     width: 350,
     marginTop: 40,
     marginBottom: 40,
@@ -56,44 +57,10 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
 });
 
-// Google Maps reverse-geocoding gives us a list of interpretations
-// of the latitude-longitude pair we gave it, of different types and
-// granularities. Here's an example result:
-//   {
-//     address_components: [
-//       0: {long_name: "South Berkeley", short_name: "South Berkeley", types: Array(2)}
-//       1: {long_name: "Berkeley", short_name: "Berkeley", types: Array(2)}
-//       2: {long_name: "Alameda County", short_name: "Alameda County", types: Array(2)}
-//       3: {long_name: "California", short_name: "CA", types: Array(2)}
-//       4: {long_name: "United States", short_name: "US", types: Array(2)}
-//     ],
-//     formatted_address: "South Berkeley, Berkeley, CA, USA",
-//     geometry: {...},
-//     place_id: "...",
-//     types: ["neighborhood", "political"]
-//   }
-// When you click the Geocode button, we pick one of the interpretations to
-// prefill the location field with. We don't want to use a result that
-// corresponds to an exact address (people probably don't want to publish that),
-// and also don't want something too imprecise like "California".
-//
-// We have a preference ordering among types, and choose the first result with
-// the most preferred type.
-function pickBestReverseGeocodingResult(results: any[]) {
-  const locationTypePreferenceOrdering = ["neighborhood", "postal_code", "locality", "political"];
-  for (let locationType of locationTypePreferenceOrdering) {
-    for (let result of results) {
-      if (result.types.indexOf(locationType) >= 0)
-        return result;
-    }
-  }
-  return results[0];
-}
-
 const RecentDiscussionMeetupsPoke = ({classes}: {
   classes: ClassesType,
 }) => {
-  const [mapsLoaded, googleMaps] = useGoogleMaps("SetPersonalMapLocationDialog")
+  const [mapsLoaded, googleMaps] = useGoogleMaps()
   const [geolocationLoading, setGeolocationLoading] = useState(false);
   const [label, setLabel] = useState<any>(null)
   const [location, setLocation] = useState<any>(null);
@@ -110,16 +77,16 @@ const RecentDiscussionMeetupsPoke = ({classes}: {
     setHidden(true);
     void updateCurrentUser({hideMeetupsPoke: true});
   }
-  const onSetLocation = (location) => {
+  const onSetLocation = (location?: google.maps.GeocoderResult) => {
     setLocation(location);
     
     // Re-apply the two checkboxes
     onSetEnableNotificationsChecked(enableNotificationsChecked);
     onSetLocationOnPublicProfileChecked(locationOnPublicProfileChecked);
   }
-  const setPublicProfileLocation = (location) => {
+  const setPublicProfileLocation = (location?: google.maps.GeocoderResult) => {
     void updateCurrentUser({
-      location: location.formatted_address,
+      location: location?.formatted_address,
     });
   }
   const clearPublicProfileLocation = () => {

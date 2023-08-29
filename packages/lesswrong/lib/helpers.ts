@@ -1,5 +1,5 @@
 import { Utils, getCollection } from './vulcan-lib';
-
+import moment from 'moment';
 
 // Get relative link to conversation (used only in session)
 export const conversationGetLink = (conversation: HasIdType): string => {
@@ -10,6 +10,27 @@ export const conversationGetLink = (conversation: HasIdType): string => {
 export const messageGetLink = (message: DbMessage): string => {
   return `/inbox/${message.conversationId}`;
 };
+
+export function constantTimeCompare({ correctValue, unknownValue }: { correctValue: string, unknownValue: string }) {
+  try {
+    const correctValueChars = correctValue.split('');
+    const unknownValueChars = unknownValue.split('');
+
+    let allCharsEqual = true;
+
+    // Iterate over the array of correct characters, which has a known (constant) length, to mitigate certain timing attacks
+    for (const [idx, char] of Object.entries(correctValueChars)) {
+      const matchedIndexCharsEqual = char === unknownValueChars[idx as AnyBecauseTodo];
+      allCharsEqual = matchedIndexCharsEqual && allCharsEqual;
+    }
+
+    const sameLength = correctValueChars.length === unknownValueChars.length;
+
+    return allCharsEqual && sameLength;
+  } catch {
+    return false;
+  }
+}
 
 // LESSWRONG version of getting unused slug. Modified to also include "oldSlugs" array
 Utils.getUnusedSlug = async function <T extends HasSlugType>(collection: CollectionBase<HasSlugType>, slug: string, useOldSlugs = false, documentId?: string): Promise<string> {
@@ -54,6 +75,47 @@ Utils.getUnusedSlugByCollectionName = async function (collectionName: Collection
 
 Utils.slugIsUsed = async (collectionName: CollectionNameString, slug: string): Promise<boolean> => {
   const collection = getCollection(collectionName)
-  const existingUserWithSlug = await collection.findOne({$or: [{slug: slug},{oldSlugs: slug}]})
+  const existingUserWithSlug = await collection.findOne({$or: [
+    {slug: slug}, {oldSlugs: slug}
+  ]});
   return !!existingUserWithSlug
 }
+
+export function sleep(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Logs how long it takes for a function to execute.  See usage example below.
+ * 
+ * Original:
+ * 
+ * `await sql.none(compiled.sql, compiled.args));`
+ * 
+ * Wrapped:
+ * 
+ * `await timedFunc('sql.none', () => sql.none(compiled.sql, compiled.args));`
+ */
+export async function timedFunc<O>(label: string, func: () => O) {
+  const startTime = new Date();
+  let result: O;
+  try {
+    result = await func();
+  } finally {
+    const endTime = new Date();
+    const runtime = endTime.valueOf() - startTime.valueOf();
+    // eslint-disable-next-line no-console
+    console.log(`${label} took ${runtime} ms`);
+  }
+  return result;
+}
+
+export const generateDateSeries = (startDate: moment.Moment | Date, endDate: moment.Moment | Date) => {
+  const dateSeries = [];
+  let currentDate = moment(startDate);
+  while (currentDate.isBefore(endDate)) {
+    dateSeries.push(currentDate.format("YYYY-MM-DD"));
+    currentDate = currentDate.add(1, "days");
+  }
+  return dateSeries;
+};

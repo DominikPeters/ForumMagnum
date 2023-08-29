@@ -1,15 +1,16 @@
 import React from 'react';
 import { Components, registerComponent } from '../../lib/vulcan-lib';
 import { useSubscribedLocation } from '../../lib/routeUtil';
-import grey from '@material-ui/core/colors/grey';
 import { Link } from '../../lib/reactRouterWrapper';
+import { isEAForum } from '../../lib/instanceSettings';
 
 export const styles = (theme: ThemeType): JssStyles => ({
   subtitle: {
     marginLeft: '1em',
     paddingLeft: '1em',
-    textTransform: 'uppercase',
-    borderLeft: `1px solid ${grey[400]}`,
+    textTransform: isEAForum ? undefined : 'uppercase',
+    color: theme.palette.header.text,
+    borderLeft: theme.palette.border.appBarSubtitleDivider,
   },
 });
 

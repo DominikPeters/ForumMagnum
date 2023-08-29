@@ -17,7 +17,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     fontSize: '1.4em',
     fontFamily: `warnock-pro,Palatino,"Palatino Linotype","Palatino LT STD","Book Antiqua",Georgia,serif`,
     lineHeight: '1.45',
-    color: 'rgba(0,0,0,0.7)',
+    color: theme.palette.text.slightlyDim2,
     textAlign: "justify",
     '& a': {
       color: theme.palette.primary.main
@@ -66,7 +66,7 @@ const styles = (theme: ThemeType): JssStyles => ({
   essaysBy: {
     alignItems: "flex-end",
     fontSize: "20px",
-    color: "grey",
+    color: theme.palette.text.grey,
     marginBottom: "18px"
   },
 
@@ -76,7 +76,7 @@ const styles = (theme: ThemeType): JssStyles => ({
 
   authorList: {
     gridArea: "authorList",
-    color: "grey"
+    color: theme.palette.text.grey,
   },
 
   mainQuoteContainer: {
@@ -97,11 +97,38 @@ const styles = (theme: ThemeType): JssStyles => ({
     gridArea: "mainQuoteAuthor",
     fontSize: "22px",
     lineHeight: "1.4em",
-    color: "grey"
+    color: theme.palette.text.grey,
   },
 
   buyButton: {
     display: 'flex'
+  },
+
+  amazonButton: {
+    ...theme.typography.commentStyle,
+    height: '36px',
+    background: theme.palette.buttons.bookCheckoutButton,
+    paddingLeft: 16,
+    paddingRight: 16,
+    color: theme.palette.buttons.primaryDarkText,
+    fontSize: '14px',
+    border: 0,
+    fontWeight: '500',
+    cursor: 'pointer',
+    letterSpacing: '0.6',
+    borderRadius: '6px',
+    transition: 'all 0.2s ease',
+    boxShadow: `0px 4px 5.5px 0px ${theme.palette.greyAlpha(0.07)}`,
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    '&:hover': {
+      opacity: 0.8
+    },
+    
+    [theme.breakpoints.down('xs')]: {
+      width: 175,
+    },
   },
 
   interludeTextContainer: {
@@ -118,7 +145,7 @@ const styles = (theme: ThemeType): JssStyles => ({
   interludeBigQuote: {
     gridArea: "interludeQuote",
     fontSize: "1.6em",
-    color: "rgba(0,0,0,0.87)",
+    color: theme.palette.text.normal,
     textAlign: 'justify'
   },
   interludeQuoteAuthor: {
@@ -167,7 +194,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     ...theme.typography.commentStyle,
     height: 36,
     fontSize: '0.83rem',
-    color: 'rgba(0,0,0,0.6)'
+    color: theme.palette.text.dim60,
   },
   mobileParagraph: {
     display: "none",
@@ -201,7 +228,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     fontSize: '1.2rem',
     marginLeft: 16,
     marginRight: 16,
-    color: 'rgba(0,0,0,0.6)'
+    color: theme.palette.text.dim60,
   },
   [theme.breakpoints.down('xs')]: {
     bookContentContainer: {
@@ -368,7 +395,9 @@ const Book2018Landing = ({classes}: {
             </p>
             <div>
               <div className={classes.buyButton}>
-                {/* <BookCheckout /> */}
+                <a className={classes.amazonButton} href="http://www.amazon.com/Map-that-Reflects-Territory-LessWrong/dp/1736128507/ref=sr_1_1?keywords=a+map+that+reflects+the+territory">
+                  Buy on Amazon  
+                </a>
                 <Link className={classes.faqLink} to="/posts/TTPux7QFBpKxZtMKE/the-lesswrong-book-is-available-for-pre-order">
                   Read the FAQ
                 </Link>
@@ -497,7 +526,13 @@ const Book2018Landing = ({classes}: {
   )
 }
 
-const Book2018LandingComponent = registerComponent('Book2018Landing', Book2018Landing, {styles});
+const Book2018LandingComponent = registerComponent('Book2018Landing', Book2018Landing, {
+  styles,
+  
+  // (Manually checked that there are no horrible contrast problems in dark mode.
+  // This page has a fair amount of very-no-reusable styling.)
+  allowNonThemeColors: true,
+});
 
 declare global {
   interface ComponentTypes {

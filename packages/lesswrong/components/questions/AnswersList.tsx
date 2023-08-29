@@ -1,6 +1,7 @@
 import { Components, registerComponent } from '../../lib/vulcan-lib';
-import { useMulti } from '../../lib/crud/withMulti';
 import React from 'react';
+import { useLocation } from '../../lib/routeUtil';
+import { isEAForum } from '../../lib/instanceSettings';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
@@ -14,44 +15,38 @@ const styles = (theme: ThemeType): JssStyles => ({
     marginBottom: theme.spacing.unit*5,
     paddingBottom: theme.spacing.unit*2,
   },
-  answerCount: {
-    ...theme.typography.postStyle,
-    marginBottom: theme.spacing.unit*2,
-    [theme.breakpoints.down('md')]: {
-      marginLeft: "auto",
-      marginRight: "auto"
-    }
+  answersSorting:{
+    ...theme.typography.body1,
+    color: theme.palette.text.secondary,
+    ...(isEAForum
+      ? {
+        fontFamily: theme.palette.fonts.sansSerifStack,
+      }
+      : {}),
   },
   loading: {
     opacity: .5,
   },
 })
 
-const MAX_ANSWERS_QUERIED = 100
-
-const AnswersList = ({post, classes}: {
+const AnswersList = ({post, answers, classes}: {
   post: PostsList,
+  answers: CommentsList[],
   classes: ClassesType,
 }) => {
-  const { results } = useMulti({
-    terms: {
-      view: "questionAnswers",
-      postId: post._id,
-      limit: MAX_ANSWERS_QUERIED
-    },
-    collectionName: "Comments",
-    fragmentName: 'CommentsList',
-    fetchPolicy: 'cache-and-network',
-    enableTotal: true,
-  });
-  const { Answer, SectionTitle } = Components
+  const location = useLocation();
+  const { query } = location;
+  const { Answer, SectionTitle, AnswersSorting } = Components
 
-  if (results && results.length) {
+  if (answers && answers.length) {
     return <div className={classes.root}>
-      <SectionTitle title={<span>{ results.length } Answers</span>}/>
+      <SectionTitle title={
+        <div><span>{ answers.length } Answers </span>
+        <span className={classes.answersSorting}>sorted by <AnswersSorting post={post}/></span>
+      </div>}/>
 
       <div className={classes.answersList}>
-        { results.map((comment, i) => {
+        { answers.map((comment, i) => {
           return <Answer comment={comment} post={post} key={comment._id} />
           })
         }

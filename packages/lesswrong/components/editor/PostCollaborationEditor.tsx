@@ -1,12 +1,14 @@
 import { Components, registerComponent } from '../../lib/vulcan-lib';
-import { useSingle } from '../../lib/crud/withSingle';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, } from 'react';
 import { useCurrentUser } from '../common/withUser';
 import { useLocation } from '../../lib/routeUtil';
-import { postGetPageUrl } from '../../lib/collections/posts/helpers';
-import { editorStyles, postBodyStyles } from '../../themes/stylePiping'
+import { getPostCollaborateUrl, canUserEditPostMetadata, postGetEditUrl, isNotHostedHere } from '../../lib/collections/posts/helpers';
+import { editorStyles, ckEditorStyles } from '../../themes/stylePiping'
 import NoSSR from 'react-no-ssr';
 import { isMissingDocumentError } from '../../lib/utils/errorUtil';
+import type { CollaborativeEditingAccessLevel } from '../../lib/collections/posts/collabEditingPermissions';
+import { fragmentTextForQuery } from '../../lib/vulcan-lib/fragments';
+import { useQuery, gql } from '@apollo/client';
 
 const styles = (theme: ThemeType): JssStyles => ({
   title: {
@@ -16,7 +18,8 @@ const styles = (theme: ThemeType): JssStyles => ({
     marginBottom: "1em",
   },
   editor: {
-    ...editorStyles(theme, postBodyStyles),
+    ...editorStyles(theme),
+    ...ckEditorStyles(theme),
     cursor: "text",
     maxWidth: 640,
     position: "relative",
@@ -31,30 +34,29 @@ const styles = (theme: ThemeType): JssStyles => ({
 const PostCollaborationEditor = ({ classes }: {
   classes: ClassesType,
 }) => {
-  const { SingleColumnSection, Loading } = Components
+  const { SingleColumnSection, Loading, ContentStyles, ErrorAccessDenied, PermanentRedirect, ForeignCrosspostEditForm } = Components
   const currentUser = useCurrentUser();
   const [editorLoaded, setEditorLoaded] = useState(false)
 
-  const { query: { postId } } = useLocation();
+  const { query: { postId, key } } = useLocation();
 
-  const { document: post, loading, error } = useSingle({
-    collectionName: "Posts",
-    fragmentName: 'PostsPage',
-    fetchPolicy: 'cache-then-network' as any, //TODO
-    documentId: postId,
+  const { data, loading, error } = useQuery(gql`
+    query LinkSharingQuery($postId: String!, $linkSharingKey: String!) {
+      getLinkSharedPost(postId: $postId, linkSharingKey: $linkSharingKey) {
+        ...PostsPage
+      }
+    }
+    ${fragmentTextForQuery("PostsPage")}
+  `, {
+    variables: {
+      postId,
+      linkSharingKey: key||"",
+    },
+    ssr: true,
   });
+  const post: PostsPage = data?.getLinkSharedPost;
   
-  // If logged out, show a login form. (Even if link-sharing is enabled, you still
-  // need to be logged into LessWrong with some account.)
-  if (!currentUser) {
-    return <Components.SingleColumnSection>
-      <div>
-        Please log in to access this draft
-      </div>
-      <Components.WrappedLoginForm/>
-    </Components.SingleColumnSection>
-  }
-  
+  // Error handling and loading state
   if (error) {
     if (isMissingDocumentError(error)) {
       return <Components.Error404 />
@@ -62,26 +64,56 @@ const PostCollaborationEditor = ({ classes }: {
     return <SingleColumnSection>Sorry, you don't have access to this draft</SingleColumnSection>
   }
   
-  if (loading || !post) {
+  if (loading) {
     return <Loading/>
   }
   
+  if (!post) {
+    // This branch is most commonly expected for users who were shared on the post, 
+    // but whose editing privileged have explicitly been set to "None"
+    return <ErrorAccessDenied/> 
+  }
+
+  // If you're the primary author, an admin, or have edit permissions, redirect to the main editor (rather than the
+  // collab editor) so you can edit metadata etc
+  if (canUserEditPostMetadata(currentUser, post)) {
+      return <PermanentRedirect url={postGetEditUrl(post._id, false, post.linkSharingKey ?? undefined)}/>
+  }
+
+  // If the post has a link-sharing key which is not in the URL, redirect to add
+  // the link-sharing key to the URL
+  if (post.linkSharingKey && !key) {
+    return <PermanentRedirect url={getPostCollaborateUrl(post._id, false, post.linkSharingKey)} status={302}/>
+  }
+
+  if (isNotHostedHere(post)) {
+    return <ForeignCrosspostEditForm post={post} />;
+  }
+  
   return <SingleColumnSection>
-    <div className={classes.title}>{post?.title}</div>
+    <div className={classes.title}>{post.title}</div>
     <Components.PostsAuthors post={post}/>
+    <Components.CollabEditorPermissionsNotices post={post}/>
     {/*!post.draft && <div>
       You are editing an already-published post. The primary author can push changes from the edited revision to the <Link to={postGetPageUrl(post)}>published revision</Link>.
     </div>*/}
-    <div className={classes.editor}>
+    <ContentStyles className={classes.editor} contentType="post">
       <NoSSR>
         <Components.CKPostEditor
           documentId={postId}
+          collectionName="Posts"
+          fieldName="contents"
           formType="edit"
           userId={currentUser?._id}
-          collaboration
+          isCollaborative={true}
+          accessLevel={post.myEditorAccess as CollaborativeEditingAccessLevel}
+        />
+        <Components.PostVersionHistoryButton
+          post={post}
+          postId={postId}
         />
       </NoSSR>
-    </div>
+    </ContentStyles>
   </SingleColumnSection>
 };
 
@@ -92,4 +124,3 @@ declare global {
     PostCollaborationEditor: typeof PostCollaborationEditorComponent
   }
 }
-

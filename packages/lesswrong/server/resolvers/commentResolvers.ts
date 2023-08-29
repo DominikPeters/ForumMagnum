@@ -1,8 +1,11 @@
-import { addGraphQLMutation, addGraphQLResolvers } from '../../lib/vulcan-lib';
+import {addGraphQLMutation, addGraphQLQuery, addGraphQLResolvers, addGraphQLSchema} from '../../lib/vulcan-lib';
 import { encodeIntlError} from '../../lib/vulcan-lib/utils';
 import { userCanModerateComment } from "../../lib/collections/users/helpers";
 import { accessFilterSingle } from '../../lib/utils/schemaUtils';
-import { moderateCommentsPostUpdate } from '../callbacks/commentCallbacks';
+import { updateMutator } from '../vulcan-lib';
+import { Comments } from '../../lib/collections/comments';
+import {CommentsRepo} from "../repos";
+import { createPaginatedResolver } from './paginatedResolver';
 
 const specificResolvers = {
   Mutation: {
@@ -19,9 +22,13 @@ const specificResolvers = {
       {
         let set: Record<string,any> = {deleted: deleted}
         if (deleted) {
-          set.deletedPublic = deletedPublic;
+          if(deletedPublic !== undefined) {
+            set.deletedPublic = deletedPublic;
+          }
           set.deletedDate = comment.deletedDate || new Date();
-          set.deletedReason = deletedReason;
+          if(deletedReason !== undefined) {
+            set.deletedReason = deletedReason;
+          }
           set.deletedByUserId = currentUser._id;
         } else { //When you undo delete, reset all delete-related fields
           set.deletedPublic = false;
@@ -29,10 +36,15 @@ const specificResolvers = {
           set.deletedReason = "";
           set.deletedByUserId = null;
         }
-        let modifier = { $set: set };
-        await context.Comments.update({_id: commentId}, modifier);
-        const updatedComment = await context.Comments.findOne(commentId)
-        await moderateCommentsPostUpdate(updatedComment!, currentUser);
+        
+        const {data: updatedComment} = await updateMutator({
+          collection: Comments,
+          documentId: commentId,
+          set,
+          currentUser: currentUser,
+          validate: false,
+          context
+        });
         return await accessFilterSingle(context.currentUser, context.Comments, updatedComment, context);
       } else {
         throw new Error(encodeIntlError({id: `app.user_cannot_moderate_post`}));
@@ -43,3 +55,34 @@ const specificResolvers = {
 
 addGraphQLResolvers(specificResolvers);
 addGraphQLMutation('moderateComment(commentId: String, deleted: Boolean, deletedPublic: Boolean, deletedReason: String): Comment');
+
+
+addGraphQLResolvers({
+  Query: {
+    async CommentsWithReacts(root: void, args: {limit: number|undefined}, context: ResolverContext) {
+      const commentsRepo = new CommentsRepo()
+      const comments = await commentsRepo.getCommentsWithReacts(args.limit??50)
+      return {
+        comments: comments
+      }
+    }
+  }
+})
+
+addGraphQLSchema(`
+  type CommentsWithReactsResult {
+   comments: [Comment!]
+  }
+`);
+
+addGraphQLQuery('CommentsWithReacts(limit: Int): CommentsWithReactsResult')
+
+createPaginatedResolver({
+  name: "PopularComments",
+  graphQLType: "Comment",
+  callback: async (
+    context: ResolverContext,
+    limit: number,
+  ): Promise<DbComment[]> => context.repos.comments.getPopularComments({limit}),
+  cacheMaxAgeMs: 300000, // 5 mins
+});

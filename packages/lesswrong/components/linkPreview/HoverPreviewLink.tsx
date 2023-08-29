@@ -2,10 +2,12 @@ import React from 'react';
 import { Components, registerComponent } from '../../lib/vulcan-lib/components';
 import { getSiteUrl } from '../../lib/vulcan-lib/utils';
 import { parseRoute, parsePath } from '../../lib/vulcan-core/appContext';
-import { hostIsOnsite, useLocation, getUrlClass } from '../../lib/routeUtil';
+import { classifyHost, useLocation, getUrlClass } from '../../lib/routeUtil';
 import { AnalyticsContext } from "../../lib/analyticsEvents";
 import { isServer } from '../../lib/executionEnvironment';
 import withErrorBoundary from '../common/withErrorBoundary';
+import { isMobile } from '../../lib/utils/isMobile'
+import { locationHashIsFootnote } from '../posts/PostsPage/CollapsedFootnotes';
 
 export const parseRouteWithErrors = (onsiteUrl: string, contentSourceDescription?: string) => {
   return parseRoute({
@@ -44,12 +46,14 @@ export const linkIsExcludedFromPreview = (url: string): boolean => {
 //   contentSourceDescription: (Optional) A human-readabe string describing
 //     where this content came from. Used in error logging only, not displayed
 //     to users.
-const HoverPreviewLink = ({ innerHTML, href, contentSourceDescription, id, rel }: {
+const HoverPreviewLink = ({ innerHTML, href, contentSourceDescription, id, rel, noPrefetch }: {
   innerHTML: string,
   href: string,
   contentSourceDescription?: string,
   id?: string,
-  rel?: string
+  rel?: string,
+  // Only Implemented for Tag Hover Previews
+  noPrefetch?: boolean,
 }) => {
   const URLClass = getUrlClass()
   const location = useLocation();
@@ -61,6 +65,9 @@ const HoverPreviewLink = ({ innerHTML, href, contentSourceDescription, id, rel }
 
   // Within-page relative link?
   if (href.startsWith("#")) {
+    if (locationHashIsFootnote(href) && !isMobile()){
+      return <Components.FootnotePreview href={href} innerHTML={innerHTML} id={id} rel={rel}/>
+    }
     return <a href={href} dangerouslySetInnerHTML={{__html: innerHTML}} id={id} rel={rel} />
   }
 
@@ -69,16 +76,17 @@ const HoverPreviewLink = ({ innerHTML, href, contentSourceDescription, id, rel }
     const linkTargetAbsolute = new URLClass(href, currentURL);
 
     const onsiteUrl = linkTargetAbsolute.pathname + linkTargetAbsolute.search + linkTargetAbsolute.hash;
-    if (!linkIsExcludedFromPreview(onsiteUrl) && (hostIsOnsite(linkTargetAbsolute.host) || isServer)) {
+    const hostType = classifyHost(linkTargetAbsolute.host)
+    if (!linkIsExcludedFromPreview(onsiteUrl) && (hostType==="onsite" || hostType==="mirrorOfUs" || isServer)) {
       const parsedUrl = parseRouteWithErrors(onsiteUrl, contentSourceDescription)
-      const destinationUrl = parsedUrl.url;
+      const destinationUrl = hostType==="onsite" ? parsedUrl.url : href;
 
       if (parsedUrl.currentRoute) {
         const PreviewComponent: any = parsedUrl.currentRoute.previewComponentName ? Components[parsedUrl.currentRoute.previewComponentName] : null;
 
         if (PreviewComponent) {
           return <AnalyticsContext pageElementContext="linkPreview" href={destinationUrl} hoverPreviewType={parsedUrl.currentRoute.previewComponentName} onsite>
-            <PreviewComponent href={destinationUrl} targetLocation={parsedUrl} innerHTML={innerHTML} id={id}/>
+            <PreviewComponent href={destinationUrl} targetLocation={parsedUrl} innerHTML={innerHTML} id={id} noPrefetch={noPrefetch}/>
           </AnalyticsContext>
         } else {
           return <Components.DefaultPreview href={href} innerHTML={innerHTML} id={id} rel={rel} />
@@ -90,6 +98,15 @@ const HoverPreviewLink = ({ innerHTML, href, contentSourceDescription, id, rel }
       }
       if (linkTargetAbsolute.host === "metaculus.com" || linkTargetAbsolute.host === "www.metaculus.com") {
         return <Components.MetaculusPreview href={href} innerHTML={innerHTML} id={id} />
+      }
+      if (linkTargetAbsolute.host === "manifold.markets" || linkTargetAbsolute.host === "www.manifold.markets") {
+        return <Components.ManifoldPreview href={href} innerHTML={innerHTML} id={id} />
+      }
+      if (linkTargetAbsolute.host === "metaforecast.org" || linkTargetAbsolute.host === "www.metaforecast.org") {
+        return <Components.MetaforecastPreview href={href} innerHTML={innerHTML} id={id} />
+      }
+      if (linkTargetAbsolute.host === "ourworldindata.org") {
+        return <Components.OWIDPreview href={href} innerHTML={innerHTML} id={id} />
       }
       if (linkTargetAbsolute.host === "arbital.com" || linkTargetAbsolute.host === "www.arbital.com") {
         return <Components.ArbitalPreview href={href} innerHTML={innerHTML} id={id} />
@@ -112,4 +129,3 @@ declare global {
     HoverPreviewLink: typeof HoverPreviewLinkComponent
   }
 }
-

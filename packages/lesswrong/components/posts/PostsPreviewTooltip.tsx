@@ -1,14 +1,13 @@
 import { registerComponent, Components } from '../../lib/vulcan-lib';
 import React, { useState } from 'react';
 import { truncate } from '../../lib/editor/ellipsize';
-import { postHighlightStyles, commentBodyStyles } from '../../themes/stylePiping'
 import { postGetPageUrl, postGetKarma, postGetCommentCountStr } from '../../lib/collections/posts/helpers';
 import Card from '@material-ui/core/Card';
 import {AnalyticsContext} from "../../lib/analyticsEvents";
 import { Link } from '../../lib/reactRouterWrapper';
 import { sortTags } from '../tagging/FooterTagList';
 import { useSingle } from '../../lib/crud/withSingle';
-import { commentsNodeRootMarginBottom } from '../../lib/globalStyles';
+import {useForeignApolloClient} from '../hooks/useForeignApolloClient';
 
 export const POST_PREVIEW_WIDTH = 400
 
@@ -21,8 +20,7 @@ export const highlightSimplifiedStyles = {
   }
 }
 
-export const highlightStyles = (theme: ThemeType) => ({
-  ...postHighlightStyles(theme),
+const highlightStyles = (theme: ThemeType) => ({
   marginTop: theme.spacing.unit*2.5,
   marginBottom: theme.spacing.unit*1.5,
   marginRight: theme.spacing.unit/2,
@@ -37,6 +35,9 @@ export const highlightStyles = (theme: ThemeType) => ({
   '& h3': {
     fontSize: "1.1rem"
   },
+  '& li': {
+    fontSize: "1.1rem"
+  },
   ...highlightSimplifiedStyles
 })
 
@@ -44,8 +45,6 @@ const styles = (theme: ThemeType): JssStyles => ({
   root: {
     width: POST_PREVIEW_WIDTH,
     position: "relative",
-    padding: theme.spacing.unit*1.5,
-    paddingBottom: 0,
     '& img': {
       maxHeight: "200px"
     },
@@ -60,19 +59,23 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
   postPreview: {
     maxHeight: 450,
+    padding: theme.spacing.unit*1.5,
+    paddingBottom: 0,
+    paddingTop: 0
   },
   header: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "space-between"
+    justifyContent: "space-between",
+    padding: theme.spacing.unit*1.5,
+    paddingBottom: 0,
   },
   title: {
     marginBottom: -6,
   },
   tooltipInfo: {
     marginLeft: 2,
-    fontStyle: "italic",
-    ...commentBodyStyles(theme),
+    ...theme.typography.italic,
     fontSize: "1.1rem",
     color: theme.palette.grey[600],
     display: "flex",
@@ -83,16 +86,12 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
   comment: {
     marginTop: theme.spacing.unit,
-    marginLeft: -13,
-    marginRight: -13,
-    marginBottom: -commentsNodeRootMarginBottom
   },
   bookmark: {
     marginTop: -4,
     paddingRight: 4
   },
   continue: {
-    ...postHighlightStyles(theme),
     color: theme.palette.grey[500],
     fontSize: "1rem",
     marginBottom: theme.spacing.unit,
@@ -109,29 +108,14 @@ const styles = (theme: ThemeType): JssStyles => ({
     color: theme.palette.grey[500],
     marginRight: theme.spacing.unit
   },
-  karmaIcon: {
-    marginRight: -2,
-    marginTop: 2,
-    height: 15,
-    color: "rgba(0,0,0,.19)"
-  },
-  commentIcon: {
-    marginLeft: 6,
-    marginTop: 2,
-    // position: "relative",
-    marginRight: -1,
-    height: 13,
-    color: "rgba(0,0,0,.19)"
-  }
 })
 
 const getPostCategory = (post: PostsBase) => {
   const categories: Array<string> = [];
 
-  if (post.isEvent) categories.push(`Event`)
+  if (post.isEvent) return null
   if (post.curatedDate) categories.push(`Curated Post`)
   if (post.af) categories.push(`AI Alignment Forum Post`);
-  if (post.meta) categories.push(`Meta Post`)
   if (post.frontpageDate && !post.curatedDate && !post.af) categories.push(`Frontpage Post`)
 
   if (categories.length > 0)
@@ -151,32 +135,42 @@ const PostsPreviewTooltip = ({ postsList, post, hash, classes, comment }: {
   classes: ClassesType,
   comment?: any,
 }) => {
-  const { PostsUserAndCoauthors, PostsTitle, ContentItemBody, CommentsNode, BookmarkButton, LWTooltip, FormatDate, Loading } = Components
+  const { PostsUserAndCoauthors, PostsTitle, ContentItemBody, CommentsNode, BookmarkButton, FormatDate,
+    Loading, ContentStyles, EventTime } = Components
   const [expanded, setExpanded] = useState(false)
 
+  const foreignApolloClient = useForeignApolloClient();
+  const isForeign = post?.fmCrosspost?.isCrosspost && !post.fmCrosspost.hostedHere && !!post.fmCrosspost.foreignPostId;
   const {document: postWithHighlight, loading} = useSingle({
     collectionName: "Posts",
     fragmentName: "HighlightWithHash",
-    documentId: post?._id,
+    documentId: post?.fmCrosspost?.foreignPostId ?? post?._id,
     skip: !post || (!hash && !!post.contents),
     fetchPolicy: "cache-first",
     extraVariables: { hash: "String" },
-    extraVariablesValues: {hash}
+    extraVariablesValues: {hash},
+    apolloClient: isForeign ? foreignApolloClient : undefined,
   });
 
   if (!post) return null
   
   const { wordCount = 0, htmlHighlight = "" } = post.contents || {}
 
-  const highlight = postWithHighlight?.contents?.htmlHighlightStartingAtHash || post.customHighlight?.html || htmlHighlight
+  const highlight = post.debate
+    ? post.dialogTooltipPreview
+    : postWithHighlight?.contents?.htmlHighlightStartingAtHash || post.customHighlight?.html || htmlHighlight
 
-  const renderWordCount = !comment && (wordCount > 0)
+  const renderWordCount = !comment && !post.isEvent && (wordCount > 0)
   const truncatedHighlight = truncate(highlight, expanded ? 200 : 100, "words", `... <span class="expand">(more)</span>`)
 
   const renderedComment = comment || post.bestAnswer
 
   const tags = sortTags(post.tags, t=>t)
   
+  let eventLocation = post.onlineEvent ? <div>Online event</div> : null
+  if (post.isEvent && post.location) {
+    eventLocation = <div>{post.location}</div>
+  }
   const postCategory: string|null = getPostCategory(post);
 
   return <AnalyticsContext pageElementContext="hoverPreview">
@@ -186,30 +180,26 @@ const PostsPreviewTooltip = ({ postsList, post, hash, classes, comment }: {
             <div className={classes.title}>
               <PostsTitle post={post} wrap showIcons={false} />
             </div>
-            <div className={classes.tooltipInfo}>
-              { postsList && <span> 
+            <ContentStyles contentType="comment" className={classes.tooltipInfo}>
+              { postsList && <span>
+                {post.startTime && <EventTime post={post} />}
+                {eventLocation}
                 {postCategory}
                 {postCategory && (tags?.length > 0) && " – "}
                 {tags?.map((tag, i) => <span key={tag._id}>{tag.name}{(i !== (post.tags?.length - 1)) ? ",  " : ""}</span>)}
                 {renderWordCount && <span>{" "}<span className={classes.wordCount}>({wordCount} words)</span></span>}
               </span>}
               { !postsList && <>
-                {post.user && <LWTooltip title="Author">
-                  <PostsUserAndCoauthors post={post} simple/>
-                </LWTooltip>}
+                {post.user && <PostsUserAndCoauthors post={post}/>}
                 <div className={classes.metadata}>
-                  <LWTooltip title={`${postGetKarma(post)} karma`}>
-                    <span className={classes.smallText}>{postGetKarma(post)} karma</span>
-                  </LWTooltip>
-                  <LWTooltip title={`${postGetCommentCountStr(post)}`}>
-                    <span className={classes.smallText}>{postGetCommentCountStr(post)}</span>
-                  </LWTooltip>
+                  <span className={classes.smallText}>{postGetKarma(post)} karma</span>
+                  <span className={classes.smallText}>{postGetCommentCountStr(post)}</span>
                   <span className={classes.smallText}>
                     <FormatDate date={post.postedAt}/>
                   </span>
                 </div>
               </>}
-            </div>
+            </ContentStyles>
           </div>
           { !postsList && <div className={classes.bookmark}>
             <BookmarkButton post={post}/>
@@ -221,21 +211,23 @@ const PostsPreviewTooltip = ({ postsList, post, hash, classes, comment }: {
                 treeOptions={{
                   post,
                   hideReply: true,
+                  forceNotSingleLine: true,
                 }}
                 truncated
                 comment={renderedComment}
                 hoverPreview
-                forceNotSingleLine
+                forceUnCollapsed
               />
             </div>
           : loading
             ? <Loading/>
             : <div onClick={() => setExpanded(true)} className={classes.postPreview}>
-                <ContentItemBody
-                  className={classes.highlight}
-                  dangerouslySetInnerHTML={{__html: truncatedHighlight }}
-                  description={`post ${post._id}`}
-                />
+                <ContentStyles contentType="postHighlight" className={classes.highlight}>
+                  <ContentItemBody
+                    dangerouslySetInnerHTML={{__html: truncatedHighlight }}
+                    description={`post ${post._id}`}
+                  />
+                </ContentStyles>
                 {expanded && <Link to={postGetPageUrl(post)}><div className={classes.continue} >
                   (Continue Reading)
                 </div></Link>}

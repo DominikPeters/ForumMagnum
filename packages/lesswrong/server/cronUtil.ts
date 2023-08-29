@@ -27,7 +27,8 @@ export function addCronJob(options: {
             if (options.interval)
               return parser.text(options.interval);
             else if (options.cronStyleSchedule) {
-              return parser.cron(options.cronStyleSchedule);
+              const hasSeconds = options.cronStyleSchedule.split(' ').length > 5;
+              return parser.cron(options.cronStyleSchedule, hasSeconds);
             }
             else
               throw new Error("addCronJob needs a schedule specified");
@@ -40,7 +41,7 @@ export function addCronJob(options: {
 }
 
 export function removeCronJob(name: string) {
-  SyncedCron.remove(name);
+  SyncedCron.rawRemove(name);
 }
 
 export function startSyncedCron() {

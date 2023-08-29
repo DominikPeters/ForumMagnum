@@ -46,7 +46,47 @@ const embedConfig = {
 		      <iframe class="thoughtSaverFrame" title="Thought Saver flashcard quiz" src="https://app.thoughtsaver.com/embed/${urlParams}"></iframe>
 		    </div>
 		  `
+		},
+		{
+			name: "Manifold",
+			url: /^manifold\.markets\/(?:embed\/)?(\w+\/[\w-]+)$/,
+			html: ([match, longslug]) => `
+				<div data-manifold-id="${longslug}" class="manifold-preview">
+					<iframe style="height: 405px; width: 100%; border: 1px solid gray;" src="https://manifold.markets/embed/${longslug}"/>
+				</div>
+			`
+		},
+		{
+			name: "StrawPoll",
+			url: /^https:\/\/strawpoll\.com\/polls\/([\w-]+)$/,
+			html: ([match, pollId]) => `
+				<div class="strawpoll-embed" id="strawpoll_${pollId}" style="height: 480px; max-width: 640px; width: 100%; margin: 0 auto; display: flex; flex-direction: column;">
+					<iframe title="StrawPoll Embed" id="strawpoll_iframe_${pollId}" src="https://strawpoll.com/embed/polls/${pollId}" style="position: static; visibility: visible; display: block; width: 100%; flex-grow: 1;" frameborder="0" allowfullscreen allowtransparency>Loading...</iframe>
+					<script async src="https://cdn.strawpoll.com/dist/widgets.js" charset="utf-8"></script>
+				</div>
+			`
 		}
+		,
+		{
+			name: "Metaforecast",
+			url: /^metaforecast\.org\/questions\/([\w-]+)$/,
+			html: ([match, slug]) => `
+				<div data-metaforecast-id="${slug}" class="metaforecast-preview">
+					<iframe style="height: 405px; width: 100%; border: 1px solid gray;" src="https://metaforecast.org/questions/embed/${slug}"/>
+				</div>
+			`
+		},
+		{
+			name: 'OWID',
+			url: /^ourworldindata\.org\/grapher\/([\w-]+).*/,
+			html: ([match, slug]) => {
+				return `
+					<div data-owid-slug="${slug}" class="owid-preview">
+						<iframe style="height: 400px; width: 100%; border: none;" src="https://${match}"/>
+					</div>
+				`
+			}
+		},
 	]
 }
 
@@ -56,7 +96,8 @@ export const postEditorConfig = {
 		'insertTable',
 		'horizontalLine',
 		'mathDisplay',
-		'mediaEmbed'
+		'mediaEmbed',
+		'footnote'
 	],
 	toolbar: {
 		items: [
@@ -76,7 +117,8 @@ export const postEditorConfig = {
 			'codeBlock',
 			'|',
 			'trackChanges',
-			'math'
+			'math',
+			'footnote',
 		],
 		shouldNotGroupWhenFull: true,
 	},
@@ -84,6 +126,7 @@ export const postEditorConfig = {
 		toolbar: [
 			'imageTextAlternative',
 			'comment',
+			'toggleImageCaption',
 		],
 	},
 	heading: headingOptions,
@@ -112,7 +155,8 @@ export const commentEditorConfig = {
 		'bulletedList',
 		'numberedList',
 		'|',
-		'math'
+		'math',
+		'footnote',
 	],
 	image: {
 		toolbar: [

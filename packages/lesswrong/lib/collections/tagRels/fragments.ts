@@ -8,9 +8,9 @@ registerFragment(`
     extendedScore
     afBaseScore
     voteCount
-    userId
     tagId
     postId
+    autoApplied
   }
 `);
 
@@ -26,6 +26,7 @@ registerFragment(`
     }
     currentUserVote
     currentUserExtendedVote
+    currentUserCanVote
   }
 `);
 
@@ -68,6 +69,7 @@ registerFragment(`
     }
     currentUserVote
     currentUserExtendedVote
+    currentUserCanVote
   }
 `);
 
@@ -77,7 +79,6 @@ registerFragment(`
   fragment WithVoteTagRel on TagRel {
     __typename
     _id
-    userId
     score
     baseScore
     extendedScore

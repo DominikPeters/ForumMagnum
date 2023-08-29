@@ -7,10 +7,11 @@ import classNames from 'classnames';
 import { useMessages } from '../common/withMessages';
 import { handleUpdateMutation, updateEachQueryResultOfType } from '../../lib/crud/cacheUpdates';
 import { InstantSearch, SearchBox, Configure, Hits } from 'react-instantsearch-dom';
-import { getAlgoliaIndexName, getSearchClient } from '../../lib/algoliaUtil';
+import { getAlgoliaIndexName, getSearchClient } from '../../lib/search/algoliaUtil';
 import { useCurrentUser } from '../common/withUser';
 import { useDialog } from '../common/withDialog';
 import CloseIcon from '@material-ui/icons/Close';
+import { preferredHeadingCase } from '../../lib/forumTypeUtils';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
@@ -18,7 +19,10 @@ const styles = (theme: ThemeType): JssStyles => ({
     '& input': {
       width: 70,
       cursor: "pointer"
-    }
+    },
+    "@media print": {
+      display: "none",
+    },
   },
   open: {
     width: "100%",
@@ -26,7 +30,7 @@ const styles = (theme: ThemeType): JssStyles => ({
       width: "calc(100% - 15px)",
       cursor: "unset"
     },
-    backgroundColor: "white",
+    backgroundColor: theme.palette.panelBackground.default,
     padding: 8
   },
   icon: {
@@ -58,13 +62,13 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
   closeIcon: {
     fontSize: '16px',
-    color: 'black',
+    color: theme.palette.icon.maxIntensity,
     cursor: 'pointer'
   },
   addButton: {
     cursor: 'pointer',
     alignItems: 'center',
-    color: 'rgba(0,0,0,0.6)',
+    color: theme.palette.text.dim60,
     display: 'flex'
   },
   postHit: {
@@ -123,7 +127,7 @@ const AddPostsToTag = ({classes, tag}: {
       onClick={() => setSearchOpen(true)}
       className={classes.addButton}
     >
-      <AddBoxIcon className={classes.icon}/> Add Posts
+      <AddBoxIcon className={classes.icon}/> {preferredHeadingCase("Add Posts")}
     </span> }
     {searchOpen && <div className={classes.search}>
       <InstantSearch

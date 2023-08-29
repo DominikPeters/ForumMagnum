@@ -2,13 +2,13 @@ import React, { Component } from 'react';
 import ReactDOM from 'react-dom';
 import { Components, registerComponent } from '../../lib/vulcan-lib';
 import classNames from 'classnames';
-import withUser from '../common/withUser';
 import { captureException }from '@sentry/core';
 import { isServer } from '../../lib/executionEnvironment';
 import { linkIsExcludedFromPreview } from '../linkPreview/HoverPreviewLink';
-
-const scrollIndicatorColor = "#ddd";
-const scrollIndicatorHoverColor = "#888";
+import { isEAForum } from '../../lib/instanceSettings';
+import withUser from './withUser';
+import { withLocation } from '../../lib/routeUtil';
+import Mark from 'mark.js';
 
 const styles = (theme: ThemeType): JssStyles => ({
   scrollIndicatorWrapper: {
@@ -37,19 +37,19 @@ const styles = (theme: ThemeType): JssStyles => ({
   
   scrollIndicatorLeft: {
     left: 0,
-    borderRight: "10px solid "+scrollIndicatorColor,
+    borderRight: `10px solid ${theme.palette.grey[310]}`,
     
     "&:hover": {
-      borderRight: "10px solid "+scrollIndicatorHoverColor,
+      borderRight: `10px solid ${theme.palette.grey[620]}`,
     },
   },
   
   scrollIndicatorRight: {
     right: 0,
-    borderLeft: "10px solid "+scrollIndicatorColor,
+    borderLeft: `10px solid ${theme.palette.grey[310]}`,
     
     "&:hover": {
-      borderLeft: "10px solid "+scrollIndicatorHoverColor,
+      borderLeft: `10px solid ${theme.palette.grey[620]}`,
     },
   },
   
@@ -70,14 +70,22 @@ const styles = (theme: ThemeType): JssStyles => ({
     "&::-webkit-scrollbar": {
       display: "none",
     },
-  }
+    scrollbarWidth: "none",
+  },
+
 });
 
-interface ContentItemBodyProps extends WithStylesProps {
-  dangerouslySetInnerHTML: { __html: string },
-  className?: string,
-  description?: string,
+interface ExternalProps {
+  dangerouslySetInnerHTML: { __html: string };
+  className?: string;
+  description?: string;
+  // Only Implemented for Tag Hover Previews
+  noHoverPreviewPrefetch?: boolean;
+  nofollow?: boolean;
+  idInsertions?: Record<string, React.ReactNode>;
+  highlightedSubstrings?: string[];
 }
+interface ContentItemBodyProps extends ExternalProps, WithStylesProps, WithUserProps, WithLocationProps {}
 interface ContentItemBodyState {
   updatedElements: boolean,
 }
@@ -112,8 +120,10 @@ class ContentItemBody extends Component<ContentItemBodyProps,ContentItemBodyStat
     this.applyLocalModifications();
   }
 
-  componentDidUpdate(prevProps) {
-    if (prevProps.dangerouslySetInnerHTML?.__html !== this.props.dangerouslySetInnerHTML?.__html) {
+  componentDidUpdate(prevProps: ContentItemBodyProps) {
+    const htmlChanged = prevProps.dangerouslySetInnerHTML?.__html !== this.props.dangerouslySetInnerHTML?.__html;
+    const highlightedSubstringsChanged = prevProps.highlightedSubstrings !== this.props.highlightedSubstrings;
+    if (htmlChanged || highlightedSubstringsChanged) {
       this.replacedElements = [];
       this.applyLocalModifications();
     }
@@ -122,9 +132,13 @@ class ContentItemBody extends Component<ContentItemBodyProps,ContentItemBodyStat
   applyLocalModifications() {
     try {
       this.markScrollableLaTeX();
+      this.collapseFootnotes();
       this.markHoverableLinks();
       this.markElicitBlocks();
+      this.hideStrawPollLoggedOut();
+      this.applyIdInsertions();
       this.setState({updatedElements: true})
+      
     } catch(e) {
       // Don't let exceptions escape from here. This ensures that, if client-side
       // modifications crash, the post/comment text still remains visible.
@@ -134,12 +148,15 @@ class ContentItemBody extends Component<ContentItemBodyProps,ContentItemBodyStat
     }
   }
   
+  
   render() {
+    const html = this.props.nofollow ? addNofollowToHTML(this.props.dangerouslySetInnerHTML.__html) : this.props.dangerouslySetInnerHTML.__html
+    
     return (<React.Fragment>
       <div
-        className={this.props.className}
+        className={classNames(this.props.classes.root, this.props.className)}
         ref={this.bodyRef}
-        dangerouslySetInnerHTML={this.props.dangerouslySetInnerHTML}
+        dangerouslySetInnerHTML={{__html: html}}
       />
       {
         this.replacedElements.map(replaced => {
@@ -155,11 +172,11 @@ class ContentItemBody extends Component<ContentItemBodyProps,ContentItemBodyStat
   // Given an HTMLCollection, return an array of the elements inside it. Note
   // that this is covering for a browser-specific incompatibility: in Edge 17
   // and earlier, HTMLCollection has `length` and `item` but isn't iterable.
-  htmlCollectionToArray(collection) {
+  htmlCollectionToArray(collection: HTMLCollectionOf<HTMLElement>) {
     if (!collection) return [];
-    let ret: Array<any> = [];
+    let ret: Array<HTMLElement> = [];
     for (let i=0; i<collection.length; i++)
-      ret.push(collection.item(i));
+      ret.push(collection.item(i)!);
     return ret;
   }
   
@@ -206,7 +223,7 @@ class ContentItemBody extends Component<ContentItemBodyProps,ContentItemBodyStat
   //
   // Attaches a handler to `block.onscrol` which shows and hides the scroll
   // indicators when it's scrolled all the way.
-  addHorizontalScrollIndicators = (block) => {
+  addHorizontalScrollIndicators = (block: HTMLElement) => {
     const { classes } = this.props;
     
     // If already wrapped, don't re-wrap (so this is idempotent).
@@ -219,7 +236,7 @@ class ContentItemBody extends Component<ContentItemBodyProps,ContentItemBodyStat
     const scrollIndicatorLeft = document.createElement("div");
     scrollIndicatorWrapper.append(scrollIndicatorLeft);
     
-    block.parentElement.insertBefore(scrollIndicatorWrapper, block);
+    block.parentElement?.insertBefore(scrollIndicatorWrapper, block);
     block.remove();
     scrollIndicatorWrapper.append(block);
     
@@ -251,18 +268,61 @@ class ContentItemBody extends Component<ContentItemBodyProps,ContentItemBodyStat
     updateScrollIndicatorClasses();
     block.onscroll = (ev) => updateScrollIndicatorClasses();
   };
-  
+
+  forwardAttributes = (node: HTMLElement) => {
+    const result: Record<string, unknown> = {};
+    const attrs = node.attributes ?? [];
+    for (let i = 0; i < attrs.length; i++) {
+      const attr = attrs[i];
+      if (attr.name === "class") {
+        result.className = attr.value;
+      } else {
+        result[attr.name] = attr.value;
+      }
+    }
+    return result;
+  }
+
+  collapseFootnotes = () => {
+    const body = this.bodyRef?.current;
+    if (!isEAForum || !body) {
+      return;
+    }
+
+    const footnotes = body.querySelector(".footnotes");
+    if (footnotes) {
+      let innerHTML = footnotes.innerHTML;
+      if (footnotes.tagName !== "SECTION") {
+        innerHTML = `<section>${innerHTML}</section>`;
+      }
+      const collapsedFootnotes = (
+        <Components.CollapsedFootnotes
+          footnotesHtml={innerHTML}
+          attributes={this.forwardAttributes(footnotes)}
+        />
+      );
+      this.replaceElement(footnotes, collapsedFootnotes);
+    }
+  }
+
   markHoverableLinks = () => {
     if(this.bodyRef?.current) {
       const linkTags = this.htmlCollectionToArray(this.bodyRef.current.getElementsByTagName("a"));
       for (let linkTag of linkTags) {
         const tagContentsHTML = linkTag.innerHTML;
         const href = linkTag.getAttribute("href");
-        if (linkIsExcludedFromPreview(href))
+        if (!href || linkIsExcludedFromPreview(href))
           continue;
-        const id = linkTag.getAttribute("id");
-        const rel = linkTag.getAttribute("rel")
-        const replacementElement = <Components.HoverPreviewLink href={href} innerHTML={tagContentsHTML} contentSourceDescription={this.props.description} id={id} rel={rel}/>
+        const id = linkTag.getAttribute("id") ?? undefined;
+        const rel = linkTag.getAttribute("rel") ?? undefined;
+        const replacementElement = <Components.HoverPreviewLink
+          href={href}
+          innerHTML={tagContentsHTML}
+          contentSourceDescription={this.props.description}
+          id={id}
+          rel={rel}
+          noPrefetch={this.props.noHoverPreviewPrefetch}
+        />
         this.replaceElement(linkTag, replacementElement);
       }
     }
@@ -280,19 +340,63 @@ class ContentItemBody extends Component<ContentItemBodyProps,ContentItemBodyStat
       }
     }
   }
+
+  hideStrawPollLoggedOut = () => {
+    const { currentUser } = this.props;
+    const { location } = this.props;
+    const { pathname } = location;
+
+    if(!currentUser && this.bodyRef?.current) {
+      const strawpollBlocks = this.htmlCollectionToArray(this.bodyRef.current.getElementsByClassName("strawpoll-embed"));
+      for (const strawpollBlock of strawpollBlocks) {
+        const replacementElement = <Components.StrawPollLoggedOut pathname={pathname}/>
+        this.replaceElement(strawpollBlock, replacementElement)
+      }
+    }
+  }
   
-  replaceElement = (replacedElement, replacementElement) => {
+  applyIdInsertions = () => {
+    if (!this.props.idInsertions) return;
+    for (let id of Object.keys(this.props.idInsertions)) {
+      const addedElement = this.props.idInsertions[id];
+      const container = document.getElementById(id);
+      // TODO: Check that it's inside this ContentItemBody
+      if (container) this.insertElement(container, <>{addedElement}</>);
+    }
+  }
+  
+  replaceElement = (replacedElement: HTMLElement, replacementElement: JSX.Element) => {
     const replacementContainer = document.createElement("span");
+    if (replacementContainer) {
+      this.replacedElements.push({
+        replacementElement: replacementElement,
+        container: replacementContainer,
+      });
+      replacedElement.parentElement?.replaceChild(replacementContainer, replacedElement);
+    }
+  }
+  
+  insertElement = (container: HTMLElement, insertedElement: JSX.Element) => {
+    const insertionContainer = document.createElement("span");
     this.replacedElements.push({
-      replacementElement: replacementElement,
-      container: replacementContainer,
+      replacementElement: insertedElement,
+      container: insertionContainer,
     });
-    replacedElement.parentElement.replaceChild(replacementContainer, replacedElement);
+    container.prepend(insertionContainer);
   }
 }
 
-const ContentItemBodyComponent = registerComponent('ContentItemBody', ContentItemBody, {
-  styles, hocs: [withUser]
+
+const addNofollowToHTML = (html: string): string => {
+  return html.replace(/<a /g, '<a rel="nofollow" ')
+}
+
+const ContentItemBodyComponent = registerComponent<ExternalProps>("ContentItemBody", ContentItemBody, {
+  styles,
+  hocs: [
+    withUser,
+    withLocation
+  ],
 });
 
 declare global {

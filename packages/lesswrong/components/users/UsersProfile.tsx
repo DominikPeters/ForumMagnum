@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { Link } from '../../lib/reactRouterWrapper';
 import { useLocation } from '../../lib/routeUtil';
 import { userCanDo } from '../../lib/vulcan-users/permissions';
-import { userCanEdit, userGetDisplayName, userGetProfileUrl, userGetProfileUrlFromSlug } from "../../lib/collections/users/helpers";
+import { userCanEditUser, userGetDisplayName, userGetProfileUrl, userGetProfileUrlFromSlug } from "../../lib/collections/users/helpers";
 import { userGetEditUrl } from '../../lib/vulcan-users/helpers';
 import { DEFAULT_LOW_KARMA_THRESHOLD } from '../../lib/collections/posts/views'
 import StarIcon from '@material-ui/icons/Star'
@@ -14,11 +14,17 @@ import PencilIcon from '@material-ui/icons/Create'
 import classNames from 'classnames';
 import { useCurrentUser } from '../common/withUser';
 import Tooltip from '@material-ui/core/Tooltip';
-import { postBodyStyles } from '../../themes/stylePiping'
 import {AnalyticsContext} from "../../lib/analyticsEvents";
-import { forumTypeSetting, hasEventsSetting, siteNameWithArticleSetting } from '../../lib/instanceSettings';
+import { forumTypeSetting, hasEventsSetting, siteNameWithArticleSetting, taggingNameIsSet, taggingNameCapitalSetting, taggingNameSetting } from '../../lib/instanceSettings';
 import { separatorBulletStyles } from '../common/SectionFooter';
 import { taglineSetting } from '../common/HeadTags';
+import { SORT_ORDER_OPTIONS } from '../../lib/collections/posts/dropdownOptions';
+import { nofollowKarmaThreshold } from '../../lib/publicSettings';
+import CopyToClipboard from 'react-copy-to-clipboard';
+import { useMessages } from '../common/withMessages';
+import CopyIcon from '@material-ui/icons/FileCopy'
+import { preferredHeadingCase } from '../../lib/forumTypeUtils';
+import { getUserStructuredData } from './UsersSingle';
 
 export const sectionFooterLeftStyles = {
   flexGrow: 1,
@@ -32,6 +38,7 @@ const styles = (theme: ThemeType): JssStyles => ({
   profilePage: {
     marginLeft: "auto",
     [theme.breakpoints.down('sm')]: {
+      paddingTop: 10,
       margin: 0,
     }
   },
@@ -39,7 +46,10 @@ const styles = (theme: ThemeType): JssStyles => ({
     fontSize: "3rem",
     ...theme.typography.display3,
     ...theme.typography.postStyle,
-    marginTop: 0
+    marginTop: 0,
+  },
+  deletedUserName: {
+    textDecoration: "line-through",
   },
   userInfo: {
     display: "flex",
@@ -58,7 +68,7 @@ const styles = (theme: ThemeType): JssStyles => ({
   icon: {
     '&$specificalz': {
       fontSize: 18,
-      color: 'rgba(0,0,0,0.5)',
+      color: theme.palette.icon.dim,
       marginRight: 4
     }
   },
@@ -67,14 +77,8 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
   bio: {
     marginTop: theme.spacing.unit*3,
-    marginLeft: theme.spacing.unit/2,
-    marginRight: theme.spacing.unit,
-    ...postBodyStyles(theme)
   },
-  primaryColor: {
-    color: theme.palette.primary.light
-  },
-  title: {
+  postsTitle: {
     cursor: "pointer"
   },
   // Dark Magick
@@ -82,18 +86,13 @@ const styles = (theme: ThemeType): JssStyles => ({
   specificalz: {},
   userMetaInfo: {
     display: "inline-flex"
+  },
+  copyIcon: {
+    fontSize: 14
   }
 })
 
-const sortings: Partial<Record<string,string>> = {
-  magic: "Magic (New & Upvoted)",
-  recentComments: "Recent Comments",
-  new: "New",
-  old: "Old",
-  top: "Top"
-}
-
-export const getUserFromResults = <T extends UsersMinimumInfo>(results: Array<T>|null): T|null => {
+export const getUserFromResults = <T extends UsersMinimumInfo>(results: Array<T>|null|undefined): T|null => {
   // HOTFIX: Filtering out invalid users
   return results?.find(user => !!user.displayName) || results?.[0] || null
 }
@@ -106,12 +105,17 @@ const UsersProfileFn = ({terms, slug, classes}: {
   const [showSettings, setShowSettings] = useState(false);
 
   const currentUser = useCurrentUser();
+  const { flash } = useMessages();
+  
   const {loading, results} = useMulti({
     terms,
     collectionName: "Users",
     fragmentName: 'UsersProfile',
     enableTotal: false,
   });
+  const user = getUserFromResults(results)
+  
+  const { query } = useLocation()
 
   const displaySequenceSection = (canEdit: boolean, user: UsersProfile) => {
     if (forumTypeSetting.get() === 'AlignmentForum') {
@@ -122,9 +126,8 @@ const UsersProfileFn = ({terms, slug, classes}: {
   }
 
   const renderMeta = () => {
-    const document = getUserFromResults(results)
-    if (!document) return null
-    const { karma, postCount, commentCount, afPostCount, afCommentCount, afKarma, tagRevisionCount } = document;
+    if (!user) return null
+    const { karma, postCount, commentCount, afPostCount, afCommentCount, afKarma, tagRevisionCount } = user;
 
     const userKarma = karma || 0
     const userAfKarma = afKarma || 0
@@ -169,7 +172,7 @@ const UsersProfileFn = ({terms, slug, classes}: {
           </span>
         </Tooltip>
 
-        <Tooltip title={`${tagRevisionCount||0} wiki edit${tagRevisionCount === 1 ? '' : 's'}`}>
+        <Tooltip title={`${tagRevisionCount||0} ${taggingNameIsSet.get() ? taggingNameSetting.get() : 'wiki'} edit${tagRevisionCount === 1 ? '' : 's'}`}>
           <span className={classes.userMetaInfo}>
             <PencilIcon className={classNames(classes.icon, classes.specificalz)}/>
             <Components.MetaInfo>
@@ -180,24 +183,25 @@ const UsersProfileFn = ({terms, slug, classes}: {
       </div>
   }
 
-  const { query } = useLocation();
-
   const render = () => {
-    const user = getUserFromResults(results)
-    const { SunshineNewUsersProfileInfo, SingleColumnSection, SectionTitle, SequencesNewButton, PostsListSettings, PostsList2, NewConversationButton, TagEditsByUser, SubscribeTo, DialogGroup, SectionButton, SettingsButton, ContentItemBody, Loading, Error404, PermanentRedirect, HeadTags, Typography } = Components
+    const { SunshineNewUsersProfileInfo, SingleColumnSection, SectionTitle, SequencesNewButton, LocalGroupsList,
+      PostsListSettings, PostsList2, NewConversationButton, TagEditsByUser, NotifyMeButton, DialogGroup,
+      SettingsButton, ContentItemBody, Loading, Error404, PermanentRedirect, HeadTags,
+      Typography, ContentStyles, ReportUserButton, LWTooltip } = Components
+
     if (loading) {
       return <div className={classNames("page", "users-profile", classes.profilePage)}>
         <Loading/>
       </div>
     }
 
-    if (!user || !user._id || user.deleted) {
+    if (!user || !user._id || (user.deleted && !currentUser?.isAdmin)) {
       //eslint-disable-next-line no-console
       console.error(`// missing user (_id/slug: ${slug})`);
       return <Error404/>
     }
 
-    if (user.oldSlugs?.includes(slug)) {
+    if (user.oldSlugs?.includes(slug) && !user.deleted) {
       return <PermanentRedirect url={userGetProfileUrlFromSlug(user.slug)} />
     }
 
@@ -215,8 +219,6 @@ const UsersProfileFn = ({terms, slug, classes}: {
       }
     }
 
-
-    const draftTerms: PostsViewTerms = {view: "drafts", userId: user._id, limit: 4, sortDrafts: currentUser?.sortDrafts || "modifiedAt" }
     const unlistedTerms: PostsViewTerms = {view: "unlisted", userId: user._id, limit: 20}
     const afSubmissionTerms: PostsViewTerms = {view: "userAFSubmissions", userId: user._id, limit: 4}
     const terms: PostsViewTerms = {view: "userPosts", ...query, userId: user._id, authorIsUnreviewed: null};
@@ -224,34 +226,54 @@ const UsersProfileFn = ({terms, slug, classes}: {
     const sequenceAllTerms: SequencesViewTerms = {view: "userProfileAll", userId: user._id, limit:9}
 
     // maintain backward compatibility with bookmarks
-    const currentSorting = query.sortedBy || query.view ||  "new"
+    const currentSorting = (query.sortedBy || query.view ||  "new") as PostSortingMode
     const currentFilter = query.filter ||  "all"
     const ownPage = currentUser?._id === user._id
     const currentShowLowKarma = (parseInt(query.karmaThreshold) !== DEFAULT_LOW_KARMA_THRESHOLD)
     const currentIncludeEvents = (query.includeEvents === 'true')
+    terms.excludeEvents = !currentIncludeEvents && currentFilter !== 'events'
+    
 
     const username = userGetDisplayName(user)
     const metaDescription = `${username}'s profile on ${siteNameWithArticleSetting.get()} — ${taglineSetting.get()}`
     
     const nonAFMember = (forumTypeSetting.get()==="AlignmentForum" && !userCanDo(currentUser, "posts.alignment.new"))
 
+    const showMessageButton = currentUser?._id != user._id
+
     return (
       <div className={classNames("page", "users-profile", classes.profilePage)}>
         <HeadTags
           description={metaDescription}
           noIndex={(!user.postCount && !user.commentCount) || user.karma <= 0 || user.noindex}
+          structuredData={getUserStructuredData(user)}
+          image={user.profileImageId && `https://res.cloudinary.com/cea/image/upload/c_crop,g_custom,q_auto,f_auto/${user.profileImageId}.jpg`}
         />
         <AnalyticsContext pageContext={"userPage"}>
           {/* Bio Section */}
           <SingleColumnSection>
-            <div className={classes.usernameTitle}>{username}</div>
+            <div className={classNames(classes.usernameTitle, {
+              [classes.deletedUserName]: user.deleted
+            })}>
+              {username}
+            </div>
+            {user.deleted && "(account deleted)"}
             <Typography variant="body2" className={classes.userInfo}>
               { renderMeta() }
               { currentUser?.isAdmin &&
                 <div>
+                  <LWTooltip title="Click to copy userId" placement="right">
+                    <CopyToClipboard text={user._id} onCopy={()=>flash({messageString:"userId copied!"})}>
+                      <CopyIcon className={classes.copyIcon} />
+                    </CopyToClipboard>
+                  </LWTooltip>
+                </div>
+              }
+              { currentUser?.isAdmin &&
+                <div>
                   <DialogGroup
                     actions={[]}
-                    trigger={<span>Register RSS</span>}
+                    trigger={<a>Register RSS</a>}
                   >
                     { /*eslint-disable-next-line react/jsx-pascal-case*/ }
                     <div><Components.newFeedButton user={user} /></div>
@@ -259,22 +281,24 @@ const UsersProfileFn = ({terms, slug, classes}: {
                 </div>
               }
               { currentUser && currentUser._id === user._id && <Link to="/manageSubscriptions">
-                Manage Subscriptions
+                {preferredHeadingCase("Manage Subscriptions")}
               </Link>}
-              { currentUser && currentUser._id != user._id && <NewConversationButton user={user} currentUser={currentUser}>
-                <a>Message</a>
+              { showMessageButton && <NewConversationButton user={user} currentUser={currentUser}>
+                <a data-cy="message">Message</a>
               </NewConversationButton>}
-              { currentUser && currentUser._id !== user._id && <SubscribeTo
+              { <NotifyMeButton
                 document={user}
                 subscribeMessage="Subscribe to posts"
                 unsubscribeMessage="Unsubscribe from posts"
               /> }
-              {userCanEdit(currentUser, user) && <Link to={userGetEditUrl(user)}>
-                Edit Account
+              {userCanEditUser(currentUser, user) && <Link to={userGetEditUrl(user)}>
+                {preferredHeadingCase("Account Settings")}
               </Link>}
             </Typography>
 
-            { user.bio && <ContentItemBody className={classes.bio} dangerouslySetInnerHTML={{__html: user.htmlBio }} description={`user ${user._id} bio`} /> }
+            {user.htmlBio && <ContentStyles contentType="post">
+              <ContentItemBody className={classes.bio} dangerouslySetInnerHTML={{__html: user.htmlBio }} description={`user ${user._id} bio`} nofollow={(user.karma || 0) < nofollowKarmaThreshold.get()}/>
+            </ContentStyles>}
           </SingleColumnSection>
 
           <SingleColumnSection>
@@ -293,15 +317,8 @@ const UsersProfileFn = ({terms, slug, classes}: {
 
           {/* Drafts Section */}
           { ownPage && <SingleColumnSection>
-            <SectionTitle title="My Drafts">
-              <Link to={"/newPost"}>
-                <SectionButton>
-                  <DescriptionIcon /> New Blog Post
-                </SectionButton>
-              </Link>
-            </SectionTitle>
             <AnalyticsContext listContext={"userPageDrafts"}>
-              <Components.PostsList2 hideAuthor showDraftTag={false} terms={draftTerms}/>
+              <Components.DraftsList limit={5}/>
               <Components.PostsList2 hideAuthor showDraftTag={false} terms={unlistedTerms} showNoResults={false} showLoading={false} showLoadMore={false}/>
             </AnalyticsContext>
             {hasEventsSetting.get() && <Components.LocalGroupsList
@@ -320,9 +337,9 @@ const UsersProfileFn = ({terms, slug, classes}: {
           }
           {/* Posts Section */}
           <SingleColumnSection>
-            <div className={classes.title} onClick={() => setShowSettings(!showSettings)}>
+            <div className={classes.postsTitle} onClick={() => setShowSettings(!showSettings)}>
               <SectionTitle title={"Posts"}>
-                <SettingsButton label={`Sorted by ${ sortings[currentSorting]}`}/>
+                <SettingsButton label={`Sorted by ${ SORT_ORDER_OPTIONS[currentSorting].label }`}/>
               </SectionTitle>
             </div>
             {showSettings && <PostsListSettings
@@ -331,16 +348,22 @@ const UsersProfileFn = ({terms, slug, classes}: {
               currentFilter={currentFilter}
               currentShowLowKarma={currentShowLowKarma}
               currentIncludeEvents={currentIncludeEvents}
-              sortings={sortings}
             />}
             <AnalyticsContext listContext={"userPagePosts"}>
+              {user.shortformFeedId && <Components.ProfileShortform user={user}/>}
               <PostsList2 terms={terms} hideAuthor />
             </AnalyticsContext>
           </SingleColumnSection>
+          {/* Groups Section */
+            (ownPage || currentUser?.isAdmin) && <LocalGroupsList terms={{
+                view: 'userActiveGroups',
+                userId: user._id,
+                limit: 300
+              }} heading="Organizer of" showNoResults={false} />
+          }
           {/* Wiki Section */}
           <SingleColumnSection>
-            <SectionTitle title={"Wiki Contributions"}>
-            </SectionTitle>
+            <SectionTitle title={`${taggingNameIsSet.get() ? taggingNameCapitalSetting.get() : 'Wiki'} Contributions`} />
             <AnalyticsContext listContext={"userPageWiki"}>
               <TagEditsByUser
                 userId={user._id}
@@ -361,9 +384,14 @@ const UsersProfileFn = ({terms, slug, classes}: {
               <Link to={`${userGetProfileUrl(user)}/replies`}>
                 <SectionTitle title={"Comments"} />
               </Link>
-              <Components.RecentComments terms={{view: 'allRecentComments', authorIsUnreviewed: null, limit: 10, userId: user._id}} />
+              <Components.RecentComments
+                terms={{view: 'profileRecentComments', authorIsUnreviewed: null, limit: 10, userId: user._id}}
+                showPinnedOnProfile
+              />
             </SingleColumnSection>
           </AnalyticsContext>
+
+          <ReportUserButton user={user}/>
         </AnalyticsContext>
       </div>
     )

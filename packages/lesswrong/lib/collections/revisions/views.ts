@@ -1,5 +1,5 @@
 import { Revisions } from './collection';
-import { ensureIndex } from '../../collectionUtils';
+import { ensureIndex } from '../../collectionIndexUtils';
 
 declare global {
   interface RevisionsViewTerms extends ViewTermsBase {
@@ -12,6 +12,7 @@ declare global {
   }
 }
 
+// NB: Includes revisions on deleted tags
 Revisions.addView('revisionsByUser', (terms: RevisionsViewTerms) => {
   return {
     selector: {

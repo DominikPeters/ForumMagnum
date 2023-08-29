@@ -1,9 +1,8 @@
 import React from 'react'
-import { EditorContents, EditorTypeString, EditorChangeEvent, serializeEditorContents, deserializeEditorContents, nonAdminEditors, adminEditors, editorTypeToDisplay } from './Editor';
+import { EditorContents, EditorTypeString, EditorChangeEvent, nonAdminEditors, adminEditors, editorTypeToDisplay } from './Editor';
 import { registerComponent, Components } from '../../lib/vulcan-lib/components';
 import { useCurrentUser } from '../common/withUser';
 import Select from '@material-ui/core/Select';
-import MenuItem from '@material-ui/core/MenuItem';
 import { useConvertDocument } from './useConvertDocument';
 
 const styles = (theme: ThemeType) => ({
@@ -18,7 +17,7 @@ const EditorTypeSelect = ({value, setValue, isCollaborative, classes}: {
   classes: ClassesType,
 }) => {
   const currentUser = useCurrentUser();
-  const { Loading } = Components;
+  const { Loading, MenuItem } = Components;
   const {convertDocument, loading, error} = useConvertDocument({
     onCompleted: (result: EditorContents) => {
       setValue({
@@ -28,7 +27,7 @@ const EditorTypeSelect = ({value, setValue, isCollaborative, classes}: {
     }
   });
   
-  if (!currentUser?.reenableDraftJs && !currentUser?.isAdmin) return null
+  if (!currentUser?.markDownPostEditor && !currentUser?.isAdmin) return null
   const editors = currentUser?.isAdmin ? adminEditors : nonAdminEditors
   
   return <>
