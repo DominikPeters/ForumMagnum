@@ -30,6 +30,10 @@ Revisions.checkAccess = async (user: DbUser|null, revision: DbRevision, context:
   if ((user && user._id) === revision.userId) return true
   if (userCanDo(user, 'posts.view.all')) return true
   
+  if (revision.draft) {
+    return false;
+  }
+
   // not sure why some revisions have no collectionName,
   // but this will cause an error below so just exclude them
   if (!revision.collectionName) return false
