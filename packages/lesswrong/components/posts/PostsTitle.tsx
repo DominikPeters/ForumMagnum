@@ -7,15 +7,16 @@ import { Link } from '../../lib/reactRouterWrapper';
 import { postGetPageUrl } from '../../lib/collections/posts/helpers';
 import { idSettingIcons, tagSettingIcons } from "../../lib/collections/posts/constants";
 import { communityPath } from '../../lib/routes';
-import { isEAForum } from '../../lib/instanceSettings';
+import { InteractionWrapper } from '../common/useClickableCell';
+import { isFriendlyUI } from '../../themes/forumTheme';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
     color: theme.palette.text.normal,
     position: "relative",
     lineHeight: "1.7rem",
-    fontWeight: isEAForum ? 600 : undefined,
-    fontFamily: isEAForum ? theme.palette.fonts.sansSerifStack : theme.typography.postStyle.fontFamily,
+    fontWeight: isFriendlyUI ? 600 : undefined,
+    fontFamily: isFriendlyUI ? theme.palette.fonts.sansSerifStack : theme.typography.postStyle.fontFamily,
     zIndex: theme.zIndexes.postItemTitle,
     [theme.breakpoints.down('xs')]: {
       paddingLeft: 2,
@@ -36,12 +37,12 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
   sticky: {
     paddingLeft: 2,
-    paddingRight: isEAForum ? 8 : 10,
+    paddingRight: isFriendlyUI ? 8 : 10,
     position: "relative",
     top: 2,
-    color: theme.palette.icon[isEAForum ? "dim4" : "slightlyDim3"],
+    color: theme.palette.icon[isFriendlyUI ? "dim4" : "slightlyDim3"],
   },
-  stickyIcon: isEAForum
+  stickyIcon: isFriendlyUI
     ? {
       width: 16,
       height: 16,
@@ -55,7 +56,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     color: theme.palette.icon.dim55,
     paddingRight: theme.spacing.unit,
     top: -2,
-    width: isEAForum ? 26 : "auto",
+    width: isFriendlyUI ? 26 : "auto",
     position: "relative",
     verticalAlign: "middle",
   },
@@ -65,7 +66,7 @@ const styles = (theme: ThemeType): JssStyles => ({
       color: theme.palette.text.normal,
     }
   },
-  eaTitleDesktopEllipsis: isEAForum ? {
+  eaTitleDesktopEllipsis: isFriendlyUI ? {
     '&:hover': {
       opacity: 0.5
     },
@@ -94,6 +95,9 @@ const styles = (theme: ThemeType): JssStyles => ({
     top: -1,
     marginRight: 4,
   },
+  interactionWrapper: {
+    display: "inline-block",
+  },
   strikethroughTitle: {
     textDecoration: "line-through"
   },
@@ -106,7 +110,8 @@ const postIcon = (post: PostsBase|PostsListBase) => {
   }
   const tagSettingIconKeys = Array.from(tagSettingIcons.keys())
   //Sometimes this function will be called with fragments that don't have the tag array, in that case assume that the tag array is empty
-  const postTags = post.hasOwnProperty('tags') ? (post as PostsListBase).tags : [] 
+  const postTags = post.hasOwnProperty('tags') ? (post as PostsListBase).tags : []
+  if (!postTags) return null
   const matchingTagSetting = tagSettingIconKeys.find(tagSetting => (postTags).find(tag => tag._id === tagSetting.get()));
   if (matchingTagSetting) {
     return tagSettingIcons.get(matchingTagSetting);
@@ -126,10 +131,11 @@ const PostsTitle = ({
   showDraftTag=true, 
   wrap=false, 
   showIcons=true,
-  isLink=true, 
-  curatedIconLeft=true, 
+  isLink=true,
+  curatedIconLeft=true,
   strikethroughTitle=false,
   Wrapper=DefaultWrapper,
+  linkEventProps,
   className,
 }:{
   post: PostsBase|PostsListBase,
@@ -145,6 +151,7 @@ const PostsTitle = ({
   curatedIconLeft?: boolean
   strikethroughTitle?: boolean
   Wrapper?: FC,
+  linkEventProps?: Record<string, string>,
   className?: string
 }) => {
   const currentUser = useCurrentUser();
@@ -172,25 +179,29 @@ const PostsTitle = ({
     {shared && <span className={classes.tag}>[Shared]</span>}
     {post.isEvent && shouldRenderEventsTag && <span className={classes.tag}>[Event]</span>}
 
-    <span className={classNames({[classes.read]: read && isEAForum})}>
+    <span className={classNames({[classes.read]: read && isFriendlyUI})}>
       <Wrapper>{post.title}</Wrapper>
     </span>
   </span>
 
   return (
     <span className={classNames(classes.root, {
-      [classes.read]: read && !isEAForum,
+      [classes.read]: read && !isFriendlyUI,
       [classes.wrap]: wrap,
       [classes.strikethroughTitle]: strikethroughTitle
     }, className)}>
       {showIcons && curatedIconLeft && post.curatedDate && <span className={classes.leftCurated}>
-        <CuratedIcon hasColor />
+        <InteractionWrapper className={classes.interactionWrapper}>
+          <CuratedIcon hasColor />
+        </InteractionWrapper>
       </span>}
       <span className={!wrap ? classes.eaTitleDesktopEllipsis : undefined}>
-        {isLink ? <Link to={url}>{title}</Link> : title }
+        {isLink ? <Link to={url} eventProps={linkEventProps}>{title}</Link> : title }
       </span>
       {showIcons && <span className={classes.hideXsDown}>
-        <PostsItemIcons post={post} hideCuratedIcon={curatedIconLeft} hidePersonalIcon={!showPersonalIcon}/>
+        <InteractionWrapper className={classes.interactionWrapper}>
+          <PostsItemIcons post={post} hideCuratedIcon={curatedIconLeft} hidePersonalIcon={!showPersonalIcon}/>
+        </InteractionWrapper>
       </span>}
     </span>
   )

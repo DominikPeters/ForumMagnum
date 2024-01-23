@@ -9,7 +9,8 @@ import qs from 'qs';
 import {getPostPingbackById, getPostPingbackByLegacyId, getPostPingbackBySlug, getUserPingbackBySlug} from './pingback'
 import { eaSequencesHomeDescription } from '../components/ea-forum/EASequencesHome';
 import { pluralize } from './vulcan-lib';
-
+import { forumSpecificRoutes } from './forumSpecificRoutes';
+import { hasPostRecommendations } from './betas';
 
 const knownTagNames = ['tag', 'topic', 'concept']
 const useShortAllTagsPath = isEAForum;
@@ -197,26 +198,6 @@ addRoute(
     background: "white"
   },
   {
-    name: 'inbox',
-    path: '/inbox',
-    componentName: 'InboxWrapper',
-    title: "Inbox"
-  },
-  {
-    name: 'moderatorInbox',
-    path: '/moderatorInbox',
-    componentName: 'ModeratorInboxWrapper',
-    title: "Moderator Inbox"
-  },
-  {
-    name: 'conversation',
-    path: '/inbox/:_id',
-    componentName: 'ConversationWrapper',
-    title: "Private Conversation",
-    background: "white",
-    initialScroll: "bottom",
-  },
-  {
     name: 'newPost',
     path: '/newPost',
     componentName: 'PostsNewForm',
@@ -310,7 +291,6 @@ addRoute(
     path: '/s/:sequenceId/p/:postId',
     componentName: 'SequencesPost',
     titleComponentName: 'PostsPageHeaderTitle',
-    subtitleComponentName: 'PostsPageHeaderTitle',
     previewComponentName: 'PostLinkPreviewSequencePost',
     getPingback: async (parsedUrl) => await getPostPingbackById(parsedUrl, parsedUrl.params.postId),
     background: "white"
@@ -356,7 +336,7 @@ addRoute(
   {
     name: 'search',
     path: '/search',
-    componentName: forumTypeSetting.get() === 'EAForum' ? 'SearchPageTabbed' : 'SearchPage',
+    componentName: 'SearchPageTabbed',
     title: 'Search',
     background: "white"
   },
@@ -591,7 +571,7 @@ onStartup(() => {
   );
 });
 
-const forumSpecificRoutes = forumSelect<Route[]>({
+const eaLwAfForumSpecificRoutes = forumSelect<Route[]>({
   EAForum: [
     {
       name: 'home',
@@ -627,6 +607,20 @@ const forumSpecificRoutes = forumSelect<Route[]>({
       _id: introPostIdSetting.get(),
       getPingback: async (parsedUrl) => await getPostPingbackById(parsedUrl, introPostIdSetting.get()),
       background: postBackground
+    },
+    {
+      name: 'BestOf',
+      path: '/best-of',
+      componentName: 'EABestOfPage',
+      title: 'Best of the Forum',
+      subtitle: 'Best of the Forum',
+      subtitleLink: '/best-of',
+    },
+    {
+      name: 'BestOfCamelCase',
+      path: '/bestOf',
+      componentName: 'EABestOfPage',
+      redirect: () => '/best-of',
     },
     {
       name: 'contact',
@@ -703,9 +697,14 @@ const forumSpecificRoutes = forumSelect<Route[]>({
     {
       name: 'ImportProfile',
       path: '/profile/import',
-      componentName: 'EAGApplicationImportForm',
+      componentName: 'EAGApplicationImportFormWrapper',
       title: 'Import Profile',
       background: 'white',
+    },
+    {
+      name: "userAnalytics",
+      path:'/users/:slug/stats',
+      componentName: "AuthorAnalyticsPage",
     },
     {
       name: 'EAGApplicationData',
@@ -738,30 +737,34 @@ const forumSpecificRoutes = forumSelect<Route[]>({
     },
     {
       name: 'EAForumWrapped',
-      path: '/wrapped',
+      path: '/wrapped/:year?',
       componentName: 'EAForumWrappedPage',
       title: 'EA Forum Wrapped',
+      noFooter: true,
     },
     {
       name: 'Digests',
       path: '/admin/digests',
       componentName: 'Digests',
       title: 'Digests',
+      isAdmin: true,
     },
     {
       name: 'EditDigest',
-      path: '/admin/digest/:num',
+      path: '/admin/digests/:num',
       componentName: 'EditDigest',
       title: 'Edit Digest',
       subtitle: 'Digests',
       subtitleLink: '/admin/digests',
-      staticHeader: true
+      staticHeader: true,
+      isAdmin: true,
     },
     {
       name: 'recommendationsSample',
       path: '/admin/recommendationsSample',
       componentName: 'RecommendationsSamplePage',
-      title: "Recommendations Sample"
+      title: "Recommendations Sample",
+      isAdmin: true,
     },
     {
       name: 'CookiePolicy',
@@ -775,25 +778,31 @@ const forumSpecificRoutes = forumSelect<Route[]>({
       redirect: () => '/saved'
     },
     {
-      name: 'savedPosts',
+      name: 'savedAndRead',
       path: '/saved',
       componentName: 'BookmarksPage',
-      title: 'Saved Posts',
-    },
-    {
-      name: 'readHistory',
-      path: '/history',
-      componentName: 'ReadHistoryPage',
-      title: 'Read History',
+      title: 'Saved & read',
     },
   ],
   LessWrong: [
     {
       name: 'home',
       path: '/',
-      componentName: 'Home2',
+      componentName: 'LWHome',
       enableResourcePrefetch: true,
       sunshineSidebar: true
+    },
+    {
+      name: 'dialogues',
+      path: '/dialogues',
+      componentName: 'DialoguesPage',
+      title: "All Dialogues",
+    },
+    {
+      name:'users.dialogueMatching',
+      path:'/dialogueMatching',
+      componentName: 'DialogueMatchingPage',
+      title: "Dialogue Matching",
     },
     {
       name: 'about',
@@ -1007,6 +1016,22 @@ const forumSpecificRoutes = forumSelect<Route[]>({
       getPingback: (parsedUrl) => getPostPingbackBySlug(parsedUrl, parsedUrl.params.slug),
       background: postBackground
     },
+    {
+      name: 'editor',
+      path: '/editor',
+      redirect: () => '/tag/guide-to-the-lesswrong-editor',
+    },
+    {
+      name: 'petrovDayPoll',
+      path: '/petrovDayPoll',
+      componentName: "PetrovDayPoll",
+    },
+    {
+      name: 'petroyDayPoll',
+      path: '/petroyDayPoll',
+      componentName: "PetrovDayPoll",
+      title: "Petrov Day Poll",
+    }
   ],
   AlignmentForum: [
     {
@@ -1132,7 +1157,7 @@ const forumSpecificRoutes = forumSelect<Route[]>({
     {
       name:'home',
       path:'/',
-      componentName: 'Home2',
+      componentName: 'LWHome',
       enableResourcePrefetch: true,
       sunshineSidebar: true //TODO: remove this in production?
     },
@@ -1167,7 +1192,7 @@ const forumSpecificRoutes = forumSelect<Route[]>({
   ],
 })
 
-addRoute(...forumSpecificRoutes)
+addRoute(...eaLwAfForumSpecificRoutes)
 
 addRoute({
   name: 'AllComments',
@@ -1177,6 +1202,7 @@ addRoute({
   title: "All Comments"
 });
 
+// Routes where just the EA Forum has an override
 addRoute(...forumSelect<Route[]>({
   EAForum: [
     {
@@ -1191,6 +1217,36 @@ addRoute(...forumSelect<Route[]>({
       path: '/shortform',
       redirect: () => "/quicktakes",
     },
+    // The inbox components here use the same components but some of the other
+    // parameters are different.
+    {
+      name: 'inbox',
+      path: '/inbox',
+      componentName: 'InboxWrapper',
+      title: "Inbox",
+      fullscreen: true,
+    },
+    {
+      name: 'conversation',
+      path: '/inbox/:_id',
+      componentName: 'InboxWrapper',
+      title: "Inbox",
+      fullscreen: true,
+    },
+    {
+      name: 'moderatorInbox',
+      path: '/moderatorInbox',
+      componentName: 'ModeratorInboxWrapper',
+      title: "Moderator Inbox",
+      fullscreen: true,
+    },
+    {
+      name: 'moderatorInboxConversation',
+      path: '/moderatorInbox/:_id',
+      componentName: 'ModeratorInboxWrapper',
+      title: "Moderator Inbox",
+      fullscreen: true,
+    },
   ],
   default: [
     {
@@ -1198,6 +1254,25 @@ addRoute(...forumSelect<Route[]>({
       path: '/shortform',
       componentName: 'ShortformPage',
       title: "Shortform"
+    },
+    {
+      name: 'inbox',
+      path: '/inbox',
+      componentName: 'InboxWrapper',
+      title: "Inbox"
+    },
+    {
+      name: 'conversation',
+      path: '/inbox/:_id',
+      componentName: 'ConversationWrapper',
+      title: "Private Conversation",
+      background: "white",
+    },
+    {
+      name: 'moderatorInbox',
+      path: '/moderatorInbox',
+      componentName: 'ModeratorInboxWrapper',
+      title: "Moderator Inbox"
     },
   ],
 }));
@@ -1299,20 +1374,20 @@ addRoute(
     path:'/posts/:_id/:slug?',
     componentName: 'PostsSingle',
     titleComponentName: 'PostsPageHeaderTitle',
-    subtitleComponentName: 'PostsPageHeaderTitle',
     previewComponentName: 'PostLinkPreview',
     getPingback: async (parsedUrl) => await getPostPingbackById(parsedUrl, parsedUrl.params._id),
-    background: postBackground
+    background: postBackground,
+    noFooter: hasPostRecommendations,
   },
   {
     name:'posts.slug.single',
     path:'/posts/slug/:slug?',
     componentName: 'PostsSingleSlugRedirect',
     titleComponentName: 'PostsPageHeaderTitle',
-    subtitleComponentName: 'PostsPageHeaderTitle',
     previewComponentName: 'PostLinkPreviewSlug',
     getPingback: (parsedUrl) => getPostPingbackBySlug(parsedUrl, parsedUrl.params.slug),
-    background: postBackground
+    background: postBackground,
+    noFooter: hasPostRecommendations,
   },
   {
     name: 'posts.revisioncompare',
@@ -1428,7 +1503,6 @@ addRoute(
     name: 'comment.greaterwrong',
     componentName: "PostsSingle",
     titleComponentName: 'PostsPageHeaderTitle',
-    subtitleComponentName: 'PostsPageHeaderTitle',
     previewComponentName: "PostCommentLinkPreviewGreaterWrong",
     noIndex: true,
     // TODO: Handle pingbacks leading to comments.
@@ -1436,13 +1510,6 @@ addRoute(
 );
 
 addRoute(
-  {
-    name: 'home2',
-    path: '/home2',
-    componentName: 'Home2',
-    enableResourcePrefetch: true,
-    title: "Home2 Beta",
-  },
   {
     name: 'allPosts',
     path: '/allPosts',
@@ -1510,5 +1577,8 @@ addRoute(
     path: '/reviewAdmin/:year',
     componentName: 'ReviewAdminDashboard',
     title: "Review Admin Dashboard",
+    isAdmin: true,
   }
 );
+
+forumSpecificRoutes();

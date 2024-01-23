@@ -25,10 +25,13 @@ export type QueryFilter = {
 } & ({
   type: "facet",
   value: boolean | string,
+  negated: boolean,
 } | {
   type: "numeric",
   value: number,
   op: QueryFilterOperator,
+} | {
+  type: "exists"
 });
 
 export type QueryData = {
@@ -40,9 +43,19 @@ export type QueryData = {
   preTag?: string,
   postTag?: string,
   filters: QueryFilter[],
+  // Providing coordinates will trigger a special case, which sorts results by distance and ignores relevance
+  coordinates?: number[],
 }
 
 export type Fuzziness = "AUTO" | number;
+
+type CompiledQuery = {
+  searchQuery: QueryDslQueryContainer,
+  snippetName: string,
+  snippetQuery?: QueryDslQueryContainer,
+  highlightName?: string,
+  highlightQuery?: QueryDslQueryContainer,
+}
 
 class ElasticQuery {
   private config: IndexConfig;
@@ -54,19 +67,12 @@ class ElasticQuery {
     this.config = indexNameToConfig(queryData.index);
   }
 
-  private getHighlightTags() {
-    const {preTag, postTag} = this.queryData;
-    return {
-      pre_tags: [preTag ?? "<em>"],
-      post_tags: [postTag ?? "</em>"],
-    };
-  }
-
   compileRanking({field, order, weight, scoring}: Ranking): string {
     let expr: string;
     switch (scoring.type) {
     case "numeric":
-      expr = `saturation(Math.max(1, doc['${field}'].value), ${scoring.pivot}L)`;
+      const min = scoring.min ?? 1;
+      expr = `saturation(Math.max(${min}, doc['${field}'].value), ${scoring.pivot}L)`;
       break;
     case "date":
       const start = SEARCH_ORIGIN_DATE;
@@ -98,11 +104,21 @@ class ElasticQuery {
     for (const filter of this.queryData.filters) {
       switch (filter.type) {
       case "facet":
-        terms.push({
+        const term: QueryDslQueryContainer = {
           term: {
             [filter.field]: filter.value,
           },
-        });
+        };
+        terms.push(
+          filter.negated
+            ? {
+              bool: {
+                should: [],
+                must_not: [term],
+              },
+            }
+            : term,
+        );
         break;
       case "numeric":
         terms.push({
@@ -111,6 +127,18 @@ class ElasticQuery {
               [filter.op]: filter.value,
             },
           },
+        });
+        break;
+      case "exists":
+        terms.push({
+          bool: {
+            should: [],
+            must: [{
+              exists: {
+                field: filter.field
+              }
+            }]
+          }
         });
         break;
       }
@@ -129,58 +157,90 @@ class ElasticQuery {
         fuzziness: this.fuzziness,
         max_expansions: 10,
         prefix_length: 3,
-        minimum_should_match: "50%",
+        minimum_should_match: "75%",
         operator: "or",
       },
     };
   }
 
-  private compileSimpleQuery(): QueryDslQueryContainer {
-    const {fields} = this.config;
+  private compileSimpleQuery(): CompiledQuery {
+    const {fields, snippet, highlight} = this.config;
     const {search} = this.queryData;
-    const mainField = fields[0].split("^")[0];
+    const mainField = this.textFieldToExactField(fields[0], false);
     return {
-      bool: {
-        should: [
-          {
-            term: {
-              objectID: {
-                value: search,
+      searchQuery: {
+        bool: {
+          should: [
+            {
+              term: {
+                objectID: {
+                  value: search,
+                },
               },
             },
-          },
-          this.getDefaultQuery(search, fields),
-          {
-            multi_match: {
-              query: search,
-              fields,
-              type: "phrase",
-              slop: 2,
-              boost: 70,
-            },
-          },
-          {
-            match_phrase_prefix: {
-              [mainField]: {
+            this.getDefaultQuery(search, fields),
+            {
+              multi_match: {
                 query: search,
+                fields,
+                type: "phrase",
                 slop: 2,
-                boost: 70,
+                boost: 100,
               },
             },
-          },
-        ],
+            {
+              match_phrase_prefix: {
+                [mainField]: {
+                  query: search,
+                  boost: 1000,
+                },
+              },
+            },
+          ],
+        },
       },
+      snippetName: snippet,
+      highlightName: highlight,
     };
   }
 
-  private textFieldToExactField(textField: string): string {
+  private textFieldToExactField(
+    textField: string,
+    keepRelevance = true,
+  ): string {
     const [fieldName, relevance] = textField.split("^");
     const exactField = `${fieldName}.exact`;
-    return relevance ? `${exactField}^${relevance}` : exactField;
+    return relevance && keepRelevance
+      ? `${exactField}^${relevance}`
+      : exactField;
   }
 
-  private compileAdvancedQuery(tokens: QueryToken[]): QueryDslQueryContainer {
-    const {fields} = this.config;
+  private getAdvancedHighlightQuery(
+    mustToken: string,
+  ): Omit<CompiledQuery, "searchQuery"> {
+    const {snippet, highlight} = this.config;
+    const snippetName = `${snippet}.exact`;
+    const highlightName = `${highlight}.exact`;
+    const buildQuery = (fieldName: string) => ({
+      match_phrase: {
+        [fieldName]: {
+          query: mustToken,
+          analyzer: "simple",
+        },
+      },
+    });
+    return {
+      snippetName,
+      snippetQuery: buildQuery(snippetName),
+      ...(highlight && {
+        highlightName,
+        highlightQuery: buildQuery(highlightName),
+      }),
+    };
+  }
+
+  private compileAdvancedQuery(tokens: QueryToken[]): CompiledQuery {
+    const {fields, snippet, highlight} = this.config;
 
     const must: QueryDslQueryContainer[] = [];
     const must_not: QueryDslQueryContainer[] = [];
@@ -192,7 +252,7 @@ class ElasticQuery {
         must.push({
           multi_match: {
             query: token,
-            fields: fields.map(this.textFieldToExactField.bind(this)),
+            fields: fields.map((field) => this.textFieldToExactField(field)),
             type: "phrase",
           },
         });
@@ -211,21 +271,49 @@ class ElasticQuery {
       }
     }
 
-    return {
+    const searchQuery: QueryDslQueryContainer = {
       bool: {
         must,
         must_not,
         should,
       },
     };
+
+    if (must.length) {
+      return {
+        searchQuery,
+        ...this.getAdvancedHighlightQuery(must[0].multi_match!.query),
+      };
+    }
+
+    return {
+      searchQuery,
+      snippetName: snippet,
+      snippetQuery: this.getDefaultQuery(
+        this.queryData.search,
+        this.config.fields,
+      ),
+      highlightName: highlight,
+      highlightQuery: this.getDefaultQuery(
+        this.queryData.search,
+        this.config.fields,
+      ),
+    };
   }
 
-  private compileQuery(): QueryDslQueryContainer {
+  private compileEmptyQuery(): CompiledQuery {
+    return {
+      searchQuery: {
+        match_all: {},
+      },
+      snippetName: "",
+    };
+  }
+
+  private compileQuery(): CompiledQuery {
     const {search} = this.queryData;
     if (!search) {
-      return {
-        match_all: {},
-      };
+      return this.compileEmptyQuery();
     }
     const {tokens, isAdvanced} = parseQuery(search);
     return isAdvanced
@@ -233,7 +321,24 @@ class ElasticQuery {
       : this.compileSimpleQuery();
   }
 
-  private compileSort(sorting?: string): Sort {
+  private compileSort(sorting?: string, coordinates?: number[]): Sort {
+    // Special case:
+    // When providing coordinates in the format [lng, lat], we sort by distance
+    // and ignore the relevance score. See also parseLatLng()
+    if (coordinates) {
+      if (!this.config.locationField) {
+        throw new Error("Index cannot be sorted by location");
+      }
+      return [
+        {
+          _geo_distance : {
+            [this.config.locationField]: coordinates,
+            order : "asc",
+          },
+        },
+        {[this.config.tiebreaker]: {order: "desc"}},
+      ];
+    }
     const sort: Sort = [
       {_score: {order: "desc"}},
       {[this.config.tiebreaker]: {order: "desc"}},
@@ -261,13 +366,39 @@ class ElasticQuery {
 
   compile(): SearchRequestInfo | SearchRequestBody {
     const {
+      preTag,
+      postTag,
       index,
       sorting,
       offset = 0,
       limit = 10,
+      coordinates,
     } = this.queryData;
-    const {snippet, highlight, privateFields} = this.config;
-    const tags = this.getHighlightTags();
+    const {privateFields} = this.config;
+
+    // When sorting by nearest-geographically we disable custom highlighting as
+    // this isn't supported by elastic and causes an exception
+    const hasCustomHighlight = !coordinates;
+
+    const {
+      searchQuery,
+      snippetName,
+      snippetQuery,
+      highlightName,
+      highlightQuery,
+    } = this.compileQuery();
+    const highlightConfig =  {
+      type: "plain",
+      pre_tags: [preTag ?? "<em>"],
+      post_tags: [postTag ?? "</em>"],
+
+      // This is the default value for index.highlight.max_analyzed_offset
+      // which we haven't customized. If this wasn't set here or was set
+      // larger than the corresponding setting on the index, then search
+      // would fail entirely when results contain a poss where the
+      // plain-text version of the body is larger than this.
+      max_analyzed_offset: 1000000,
+    };
     return {
       index,
       from: offset,
@@ -275,19 +406,30 @@ class ElasticQuery {
       body: {
         track_scores: true,
         track_total_hits: true,
-        highlight: {
-          fields: {
-            [snippet]: tags,
-            ...(highlight && {[highlight]: tags}),
+        ...(hasCustomHighlight && {
+          highlight: {
+            fields: {
+              [snippetName]: {
+                ...highlightConfig,
+                highlight_query: snippetQuery,
+              },
+              ...(highlightName && {
+                [highlightName]: {
+                  ...highlightConfig,
+                  highlight_query: highlightQuery,
+                },
+              }),
+            },
+            number_of_fragments: 1,
+            fragment_size: 140,
+            no_match_size: 140,
           },
-          fragment_size: 140,
-          no_match_size: 140,
-        },
+        }),
         query: {
           script_score: {
             query: {
               bool: {
-                must: this.compileQuery(),
+                must: searchQuery,
                 should: [],
                 filter: this.compileFilters(),
               },
@@ -297,9 +439,9 @@ class ElasticQuery {
             },
           },
         },
-        sort: this.compileSort(sorting),
+        sort: this.compileSort(sorting, coordinates),
         _source: {
-          exclude: ["exportedAt", ...privateFields],
+          excludes: ["exportedAt", ...privateFields],
         },
       },
     };

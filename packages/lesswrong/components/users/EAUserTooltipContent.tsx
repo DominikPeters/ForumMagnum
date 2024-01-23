@@ -1,16 +1,20 @@
 import React, { useMemo } from "react";
 import { registerComponent, Components } from "../../lib/vulcan-lib";
-import { htmlToText } from "html-to-text";
+import { htmlToTextDefault } from "../../lib/htmlToText";
+import { FRIENDLY_THIN_HOVER_OVER_WIDTH } from "../common/FriendlyHoverOver";
 import moment from "moment";
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
     display: "flex",
     flexDirection: "column",
-    width: 270,
+    width: FRIENDLY_THIN_HOVER_OVER_WIDTH,
     maxWidth: "100%",
     gap: "12px",
     fontSize: 14,
+    fontWeight: 450,
+    lineHeight: "19.5px",
+    fontFamily: theme.palette.fonts.sansSerifStack,
   },
   header: {
     display: "flex",
@@ -74,17 +78,12 @@ const formatRole = (jobTitle?: string, organization?: string): string =>
     ? `${jobTitle} @ ${organization}`
     : (jobTitle || organization) ?? "";
 
-const formatBio = (bio?: string): string => htmlToText(bio ?? "", {
-  selectors: [
-    {selector: "a", options: {ignoreHref: true}},
-    {selector: "img", format: "skip"},
-  ],
-});
+const formatBio = (bio?: string): string => htmlToTextDefault(bio ?? "");
 
-const formatStat = (value?: number): string => {
+export const formatStat = (value?: number): string => {
   value ??= 0;
   return value > 10000
-    ? `${Math.floor(value / 1000)} ${value % 1000}`
+    ? `${Math.floor(value / 1000)} ${String(value % 1000).padStart(3, "0")}`
     : String(value);
 }
 

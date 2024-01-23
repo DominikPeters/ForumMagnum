@@ -4,6 +4,7 @@ import { SettingsOption } from "../posts/dropdownOptions"
 import { TupleSet, UnionOf } from "../../utils/typeGuardUtils"
 import { DIGEST_STATUSES } from "../digestPosts/schema"
 import type { DigestPost } from "../../../components/ea-forum/digest/EditDigest"
+import { isPostWithForeignId } from "../../../components/hooks/useForeignCrosspost"
 
 export const DIGEST_STATUS_OPTIONS = new TupleSet([...DIGEST_STATUSES, 'pending'] as const)
 export type InDigestStatusOption = UnionOf<typeof DIGEST_STATUS_OPTIONS>
@@ -12,13 +13,23 @@ export type StatusField = 'emailDigestStatus'|'onsiteDigestStatus'
 /**
  * Returns the digest name in our standard format
  */
-export const getDigestName = ({digest, includeDates=true}: {digest: DigestsMinimumInfo, includeDates?: boolean}) => {
-  const name = `EA Forum Digest #${digest.num}`
-  if (!includeDates) return name
-  
-  const digestStartDateFormatted = moment(digest.startDate).format('MMM D')
-  const digestEndDateFormatted = digest.endDate ? moment(digest.endDate).format('MMM D') : 'now'
-  return `${name} (${digestStartDateFormatted} - ${digestEndDateFormatted})`
+export const getDigestName = (digest: DigestsMinimumInfo) => {
+  return `EA Forum Digest #${digest.num}`
+}
+
+/**
+ * Returns the digest name and dates
+ */
+export const getDigestInfo = (digest: DigestsMinimumInfo) => {
+  const name = getDigestName(digest)
+  const start = moment(digest.startDate).format('MMM D')
+  const end = digest.endDate ? moment(digest.endDate).format('MMM D') : 'now'
+
+  return {
+    name,
+    start,
+    end
+  }
 }
 
 /**
@@ -40,12 +51,13 @@ export const getPostAuthors = (post: PostsListBase) => {
 /**
  * Returns the post data in the format that we expect to see in the email digest:
  *
- * <post title as link> (<post authors>, [<read time> min | link-post])
+ * <post title as link> (<post authors>, <read time> min)
  */
-export const getEmailDigestPostData = (post: PostsListBase) => {
+export const getEmailDigestPostData = (post: PostsListWithVotes) => {
   const url = combineUrls(getSiteUrl(), `/posts/${post._id}/${post.slug}`)
-  const readingTime = post.url ? 'link-post' : `${post.readTimeMinutes} min`
-  return `<a href="${url}">${post.title}</a> (${getPostAuthors(post)}, ${readingTime})`
+  const readTimeText = isPostWithForeignId(post) ? '' : `, ${post.readTimeMinutes} min`
+  const linkpostText = post.url ? ', link-post' : ''
+  return `<a href="${url}">${post.title}</a> (${getPostAuthors(post)}${readTimeText}${linkpostText})`
 }
 
 /**
@@ -54,7 +66,7 @@ export const getEmailDigestPostData = (post: PostsListBase) => {
  * 1. <post title as link> (<post authors>, <read time> min)
  * 2. ...
  */
-export const getEmailDigestPostListData = (posts: PostsListBase[]) => {
+export const getEmailDigestPostListData = (posts: PostsListWithVotes[]) => {
   const digestData = posts.reduce((prev, next) => {
     return `${prev}<li>${getEmailDigestPostData(next)}</li>`
   }, '')

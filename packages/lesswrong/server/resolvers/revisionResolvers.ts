@@ -3,26 +3,31 @@ import { dataToMarkdown, dataToHTML, dataToCkEditor } from '../editor/conversion
 import { highlightFromHTML, truncate } from '../../lib/editor/ellipsize';
 import { htmlStartingAtHash } from '../extractHighlights';
 import { augmentFieldsDict } from '../../lib/utils/schemaUtils'
-import { defineQuery } from '../utils/serverGraphqlUtil';
+import { defineMutation, defineQuery } from '../utils/serverGraphqlUtil';
 import { compile as compileHtmlToText } from 'html-to-text'
 import sanitizeHtml, {IFrame} from 'sanitize-html';
 import { extractTableOfContents } from '../tableOfContents';
 import * as _ from 'underscore';
 import { dataToDraftJS } from './toDraft';
 import { sanitize, sanitizeAllowedTags } from '../../lib/vulcan-lib/utils';
+import { htmlToTextDefault } from '../../lib/htmlToText';
+import { tagMinimumKarmaPermissions, tagUserHasSufficientKarma } from '../../lib/collections/tags/helpers';
+import { afterCreateRevisionCallback, buildRevision, getLatestRev, getNextVersion, htmlToChangeMetrics } from '../editor/make_editable_callbacks';
+import isEqual from 'lodash/isEqual';
+import { createMutator, updateMutator } from '../vulcan-lib/mutators';
+import { EditorContents } from '../../components/editor/Editor';
+import { userOwns } from '../../lib/vulcan-users/permissions';
 
 // Use html-to-text's compile() wrapper (baking in options) to make it faster when called repeatedly
-const htmlToTextDefault = compileHtmlToText();
-
 const htmlToTextPlaintextDescription = compileHtmlToText({
   wordwrap: false,
   selectors: [
     { selector: "img", format: "skip" },
     { selector: "a", options: { ignoreHref: true } },
     { selector: "p", options: { leadingLineBreaks: 1 } },
-    { selector: "h1", options: { trailingLineBreaks: 1 } },
-    { selector: "h2", options: { trailingLineBreaks: 1 } },
-    { selector: "h3", options: { trailingLineBreaks: 1 } },
+    { selector: "h1", options: { trailingLineBreaks: 1, uppercase: false } },
+    { selector: "h2", options: { trailingLineBreaks: 1, uppercase: false } },
+    { selector: "h3", options: { trailingLineBreaks: 1, uppercase: false } },
   ]
 });
 
@@ -76,6 +81,8 @@ augmentFieldsDict(Revisions, {
         const toc = extractTableOfContents(rawHtml);
         const html = toc?.html || rawHtml;
         
+        if (!html) return '';
+        
         const startingFromHash = htmlStartingAtHash(html, hash);
         const highlight = highlightFromHTML(startingFromHash);
         return highlight;
@@ -99,6 +106,8 @@ augmentFieldsDict(Revisions, {
     resolveAs: {
       type: 'String',
       resolver: ({html}) => {
+        if (!html) return ""
+
         const mainTextHtml = sanitizeHtml(
           html, {
             allowedTags: _.without(sanitizeAllowedTags, 'blockquote', 'img'),
@@ -147,4 +156,103 @@ defineQuery({
         };
     }
   },
+});
+
+defineMutation({
+  name: "revertTagToRevision",
+  resultType: "Tag",
+  argTypes: "(tagId: String!, revertToRevisionId: String!)",
+  fn: async (root: void, { tagId, revertToRevisionId }: { tagId: string, revertToRevisionId: string }, context: ResolverContext) => {
+    const { currentUser, loaders, Tags } = context;
+    if (!tagUserHasSufficientKarma(currentUser, 'edit')) {
+      throw new Error(`Must be logged in and have ${tagMinimumKarmaPermissions['edit']} karma to revert tags to older revisions`);
+    }
+
+    const [tag, revertToRevision, latestRevision] = await Promise.all([
+      loaders.Tags.load(tagId),
+      loaders.Revisions.load(revertToRevisionId),
+      getLatestRev(tagId, 'description')
+    ]);
+
+    const anyDiff = !isEqual(tag.description.originalContents, revertToRevision.originalContents);
+
+    if (!tag)               throw new Error('Invalid tagId');
+    if (!revertToRevision)  throw new Error('Invalid revisionId');
+    // I don't think this should be possible if we find a revision to revert to, but...
+    if (!latestRevision)    throw new Error('Tag is missing latest revision');
+    if (!anyDiff)           throw new Error(`Can't find difference between revisions`);
+
+    await updateMutator({
+      collection: Tags,
+      context,
+      documentId: tag._id,
+      data: {
+        description: {
+          originalContents: revertToRevision.originalContents,
+        },
+      },
+      currentUser,
+    });
+  }
+});
+
+defineMutation({
+  name: "autosaveRevision",
+  resultType: "Revision",
+  schema: `
+    input AutosaveContentType {
+      type: String
+      value: ContentTypeData
+    }
+  `,
+  argTypes: "(postId: String!, contents: AutosaveContentType!)",
+  fn: async (_, { postId, contents }: { postId: string, contents: EditorContents }, context): Promise<DbRevision> => {
+    const { currentUser, loaders } = context;
+    if (!currentUser) {
+      throw new Error('Cannot autosave revision while logged out');
+    }
+
+    const post = await loaders.Posts.load(postId);
+    if (!userOwns(currentUser, post)) {
+      throw new Error('Must be post author to autosave');
+    }
+
+    const postContentsFieldName = 'contents';
+    const updateSemverType = 'patch';
+
+    const [previousRev, html] = await Promise.all([
+      getLatestRev(postId, postContentsFieldName),
+      dataToHTML(contents.value, contents.type, !currentUser.isAdmin)
+    ]);
+
+    const nextVersion = getNextVersion(previousRev, updateSemverType, post.draft);
+    const changeMetrics = htmlToChangeMetrics(previousRev?.html || "", html);
+
+    const newRevision: Partial<DbRevision> = {
+      ...await buildRevision({
+        originalContents: { type: contents.type, data: contents.value },
+        currentUser,
+      }),
+      documentId: postId,
+      fieldName: postContentsFieldName,
+      collectionName: 'Posts',
+      version: nextVersion,
+      draft: true,
+      updateType: updateSemverType,
+      changeMetrics,
+    };
+
+    const { data: createdRevision } = await createMutator({
+      collection: Revisions,
+      document: newRevision,
+      context,
+      currentUser,
+      validate: false
+    });
+
+    // TODO: not sure if we need these?  The aren't called by `saveDocumentRevision` in `ckEditorWebhook.ts` after creating a new revision from ckeditor's cloud autosave
+    await afterCreateRevisionCallback.runCallbacksAsync([{ revisionID: createdRevision._id }]);
+
+    return createdRevision;
+  }
 });

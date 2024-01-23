@@ -131,6 +131,7 @@ declare global {
       notificationLabel: ColorString,
       eventType: ColorString,
       tooltipText: ColorString,
+      tooltipTextDim: ColorString,
       negativeKarmaRed: ColorString,
       moderationGuidelinesEasygoing: ColorString,
       moderationGuidelinesNormEnforcing: ColorString,
@@ -147,18 +148,30 @@ declare global {
       warning: ColorString,
       red: ColorString,
       alwaysWhite: ColorString,
+      alwaysBlack: ColorString,
       sequenceIsDraft: ColorString,
       sequenceTitlePlaceholder: ColorString,
       primaryDarkOnDim: ColorString,
+      contentHeader?: ColorString,
     
       reviewUpvote: ColorString,
       reviewDownvote: ColorString,
+      reviewBallotIcon: ColorString,
       
       eventMaybe: ColorString,
       aprilFools: {
         orange: ColorString,
         yellow: ColorString,
         green: ColorString,
+      },
+
+      debateComment: {
+        [1]: ColorString,
+        [2]: ColorString,
+        [3]: ColorString,
+        [4]: ColorString,
+        [5]: ColorString,
+        [6]: ColorString,
       },
     },
     linkHover: {
@@ -174,6 +187,7 @@ declare global {
       tocLinkHighlighted: ColorString,
       primaryDim: ColorString,
       visited: ColorString
+      visitedHover?: ColorString,
     },
     icon: {
       normal: ColorString,
@@ -196,13 +210,17 @@ declare global {
       loadingDotsAlternate: ColorString,
       horizRuleDots: ColorString,
       greenCheckmark: ColorString,
+      filledGreenCheckmark: ColorString,
       onTooltip: ColorString,
       inverted: ColorString,
       topAuthor: ColorString,
       navigationSidebarIcon: ColorString,
       sprout: ColorString,
       yellow: ColorString,
-      
+      recentDiscussionGreen: ColorString,
+      recentDiscussionGrey: ColorString,
+      activeDotOrange: ColorString,
+
       commentsBubble: {
         commentCount: ColorString,
         noUnread: ColorString,
@@ -219,6 +237,7 @@ declare global {
       slightlyIntense3: string,
       intense: string,
       faint: string,
+      grey200: string,
       grey300: string,
       grey400: string,
       maxIntensity: string,
@@ -237,12 +256,9 @@ declare global {
       secondaryHighlight: string,
       secondaryHighlight2: string,
       primaryTranslucent: string,
-      debateComment: string,
-      debateComment2: string,
-      debateComment3: string,
-      debateComment4: string,
-      debateComment5: string,
       dashed500: string,
+      mentionsBaloon: string,
+      wrappedSummary: string,
     },
     panelBackground: {
       default: ColorString,
@@ -280,6 +296,7 @@ declare global {
       notificationMenuTabBar: ColorString,
       recentDiscussionThread: ColorString,
       tooltipBackground: ColorString,
+      tooltipBackground2: ColorString,
       tenPercent: ColorString,
       sunshineReportedContent: ColorString,
       sunshineFlaggedUser: ColorString,
@@ -294,6 +311,9 @@ declare global {
       sequenceImageGradient: string,
       sequencesBanner: ColorString,
       cookieBanner: ColorString,
+      strawpoll: ColorString,
+      userProfileImageHover: ColorString,
+      userProfileImageLoading: string,
     },
     boxShadow: {
       default: string,
@@ -316,6 +336,8 @@ declare global {
       eaCard: string,
       searchResults: string,
       recentDiscussionMeetupsPoke: string,
+      graphTooltip: string,
+      lwTagHoverOver: string,
     },
     buttons: {
       hoverGrayHighlight: ColorString,
@@ -347,6 +369,11 @@ declare global {
       },
       bookCheckoutButton: ColorString,
       eventCardTag: ColorString,
+      mentions: {
+        hover: ColorString,
+        selected: ColorString,
+        selectedHover: ColorString,
+      },
     },
     tag: {
       text: ColorString,
@@ -379,12 +406,14 @@ declare global {
     background: {
       default: ColorString
       paper: ColorString,
+      contrastInDarkMode: ColorString,
       pageActiveAreaBackground: ColorString,
       translucentBackground: ColorString,
       diffInserted: ColorString,
       diffDeleted: ColorString,
       usersListItem: ColorString,
       primaryDim: ColorString,
+      primarySlightlyDim: ColorString,
       primaryTranslucent: ColorString,
       primaryTranslucentHeavy: ColorString,
       warningTranslucent: ColorString,
@@ -424,6 +453,9 @@ declare global {
       border: ColorString,
       hoverBackground: ColorString,
     },
+    graph: {
+      analyticsReads: ColorString,
+    },
     group: ColorString,
     contrastText: ColorString,
     individual: ColorString,
@@ -432,11 +464,36 @@ declare global {
     commentParentScrollerHover: ColorString,
     tocScrollbarColors: string,
     eventsHomeLoadMoreHover: ColorString,
+
+    wrapped: {
+      background: ColorString,
+      highlightText: ColorString,
+      secondaryText: ColorString,
+      tertiaryText: ColorString,
+      black: ColorString,
+      darkGrey: ColorString,
+      grey: ColorString,
+      darkDot: ColorString,
+      panelBackground: ColorString,
+      panelBackgroundDark: ColorString,
+      postScoreArrow: ColorString,
+    },
+    dialogueMatching: {
+      checkedNotMatched: ColorString,
+      checkedMatched: ColorString,
+      optIn: ColorString,
+      warning: ColorString,
+    },
+    namesAttachedReactions: {
+      selectedAnti: ColorString,
+    },
   };
   type ThemePalette = Merge<ThemeShadePalette,ThemeComponentPalette>
   
   type ThemeType = {
     forumType: ForumTypeString,
+
+    baseFontSize: number,
     
     breakpoints: {
       /** Down is *inclusive* - down(sm) will go up to the md breakpoint */

@@ -1,14 +1,43 @@
 import pgp, { IDatabase, IEventContext } from "pg-promise";
+import type { IClient, IResult } from "pg-promise/typescript/pg-subset";
 import Query from "../lib/sql/Query";
-import { queryWithLock } from "./queryWithLock";
 import { isAnyTest } from "../lib/executionEnvironment";
 import { PublicInstanceSetting } from "../lib/instanceSettings";
-import type { DbTarget } from "../lib/sql/PgCollection";
+import omit from "lodash/omit";
+import { logAllQueries } from "../lib/sql/sqlClient";
+import { recordSqlQueryPerfMetric } from "./perfMetrics";
+
+const SLOW_QUERY_REPORT_CUTOFF_MS = 2000;
 
 const pgConnIdleTimeoutMsSetting = new PublicInstanceSetting<number>('pg.idleTimeoutMs', 10000, 'optional')
 
-const pgPromiseLib = pgp({
+let vectorTypeOidPromise: Promise<number | null> | null = null;
+
+const getVectorTypeOid = async (client: IClient): Promise<number | null> => {
+  const result: IResult<{oid: number}> = await client.query(
+    "SELECT oid FROM pg_type WHERE typname = 'vector'",
+  );
+  if (result.rowCount < 1) {
+    // eslint-disable-next-line no-console
+    console.warn("vector type not found in the database");
+    return null;
+  }
+  return result.rows[0].oid;
+}
+
+export const pgPromiseLib = pgp({
   noWarnings: isAnyTest,
+  connect: async ({client}) => {
+    if (!vectorTypeOidPromise) {
+      vectorTypeOidPromise = getVectorTypeOid(client);
+    }
+    const oid = await vectorTypeOidPromise;
+    if (typeof oid === "number") {
+      (client as AnyBecauseHard).setTypeParser(oid, "text", (value: string) => {
+        return value.substring(1, value.length - 1).split(",").map((v) => parseFloat(v));
+      });
+    }
+  },
   error: (err, ctx) => {
     // If it's a syntax error, print the bad query for debugging
     if (typeof err.code === "string" && err.code.startsWith("42")) {
@@ -39,166 +68,143 @@ const pgPromiseLib = pgp({
  */
 const MAX_CONNECTIONS = parseInt(process.env.PG_MAX_CONNECTIONS ?? "25");
 
+const queryMethods = [
+  "none",
+  "one",
+  "oneOrNone",
+  "many",
+  "manyOrNone",
+  "any",
+  "multi",
+] as const;
+
+type SqlDescription = string | (() => string);
+
 declare global {
+  /**
+   * By default most args are passed in as an array of values,
+   * but you can also pass in named args as a record with field names corresponding to the named parameters in the query.
+   * Those should use the $() syntax - e.g. `$(postId)`
+   */
+  type SqlQueryArg = Json | Date | undefined;
+  type SqlQueryArgs = SqlQueryArg[] | Record<string, SqlQueryArg>;
+
   type RawSqlClient = IDatabase<{}>;
-  type SqlClient = RawSqlClient & {
+  type SqlClient = Omit<RawSqlClient, typeof queryMethods[number]> & {
     // We can't use `T extends DbObject` here because DbObject isn't available to the
     // migration bootstrapping code - `any` will do for now
     concat: (queries: Query<any>[]) => string;
     isTestingClient: boolean;
+
+    // We augment all the normal query functions with logging for slow queries
+    none: (
+      query: string,
+      values?: SqlQueryArgs,
+      describe?: SqlDescription,
+      quiet?: boolean,
+    ) => Promise<null>;
+    one: <T = any>(
+      query: string,
+      values?: SqlQueryArgs,
+      describe?: SqlDescription,
+      quiet?: boolean,
+    ) => Promise<T>;
+    oneOrNone: <T = any>(
+      query: string,
+      values?: SqlQueryArgs,
+      describe?: SqlDescription,
+      quiet?: boolean,
+    ) => Promise<T | null>;
+    many: <T = any>(
+      query: string,
+      values?: SqlQueryArgs,
+      describe?: SqlDescription,
+      quiet?: boolean,
+    ) => Promise<T[]>;
+    manyOrNone: <T = any>(
+      query: string,
+      values?: SqlQueryArgs,
+      describe?: SqlDescription,
+      quiet?: boolean,
+    ) => Promise<T[]>;
+    any: <T = any>(
+      query: string,
+      values?: SqlQueryArgs,
+      describe?: SqlDescription,
+      quiet?: boolean,
+    ) => Promise<T[]>;
+    multi: <T = any>(
+      query: string,
+      values?: SqlQueryArgs,
+      describe?: SqlDescription,
+      quiet?: boolean,
+    ) => Promise<T[][]>;
   };
 }
 
-/**
- * When a new database connection is created we run these queries to
- * ensure the environment is setup correctly. The order in which they
- * are run is undefined.
- */
-const onConnectQueries: string[] = [
-  // The default TOAST compression in PG uses pglz - here we switch to lz4 which
-  // uses slightly more disk space in exchange for _much_ faster compression and
-  // decompression times
-  `SET default_toast_compression = lz4`,
-  // Enable to btree_gin extension - this allows us to use a lot of BTREE operators
-  // with GIN indexes that otherwise wouldn't work
-  `CREATE EXTENSION IF NOT EXISTS "btree_gin" CASCADE`,
-  // Enable the earthdistance extension - this is used for finding nearby events
-  `CREATE EXTENSION IF NOT EXISTS "earthdistance" CASCADE`,
-  // Enable the intarray extension - this is used for collab filtering recommendations
-  `CREATE EXTENSION IF NOT EXISTS "intarray" CASCADE`,
-  // Build a nested JSON object from a path and a value - this is a dependency of
-  // fm_add_to_set below
-  `CREATE OR REPLACE FUNCTION fm_build_nested_jsonb(
-    target_path TEXT[],
-    terminal_element JSONB
-  )
-    RETURNS JSONB LANGUAGE sql IMMUTABLE AS
-   'SELECT JSONB_BUILD_OBJECT(
-      target_path[1],
-      CASE
-        WHEN CARDINALITY(target_path) = 1 THEN terminal_element
-        ELSE fm_build_nested_jsonb(
-          target_path[2:CARDINALITY(target_path)],
-          terminal_element
-        )
-      END
-    );'
-  `,
-  // Implement Mongo's $addToSet for native PG arrays
-  `CREATE OR REPLACE FUNCTION fm_add_to_set(ANYARRAY, ANYELEMENT)
-    RETURNS ANYARRAY LANGUAGE sql IMMUTABLE AS
-   'SELECT CASE WHEN ARRAY_POSITION($1, $2) IS NULL THEN $1 || $2 ELSE $1 END;'
-  `,
-  // Implement Mongo's $addToSet for JSON fields - this requires a lot more work
-  // than for native PG arrays...
-  `CREATE OR REPLACE FUNCTION fm_add_to_set(
-    base_field JSONB,
-    target_path TEXT[],
-    value_to_add ANYELEMENT
-  )
-    RETURNS JSONB LANGUAGE sql IMMUTABLE AS
-   'SELECT CASE
-    WHEN base_field #> target_path IS NULL
-      THEN COALESCE(base_field, ''{}''::JSONB) || fm_build_nested_jsonb(
-        target_path,
-        JSONB_BUILD_ARRAY(value_to_add)
-      )
-    WHEN EXISTS (
-      SELECT *
-      FROM JSONB_ARRAY_ELEMENTS(base_field #> target_path) AS elem
-      WHERE elem = TO_JSONB(value_to_add)
-    )
-      THEN base_field
-    ELSE JSONB_INSERT(
-      base_field,
-      (SUBSTRING(target_path::TEXT FROM ''(.*)}.*$'') || '', -1}'')::TEXT[],
-      TO_JSONB(value_to_add),
-      TRUE
-    )
-    END;'
-  `,
-  // Calculate the similarity between the tags on two posts from 0 to 1, where 0 is
-  // totally dissimilar and 1 is identical. The algorithm used here is a weighted
-  // Jaccard index.
-  `CREATE OR REPLACE FUNCTION fm_post_tag_similarity(
-    post_id_a TEXT,
-    post_id_b TEXT
-  )
-    RETURNS FLOAT LANGUAGE sql IMMUTABLE AS
-   'SELECT
-      COALESCE(SUM(LEAST(a, b))::FLOAT / SUM(GREATEST(a, b))::FLOAT, 0) AS similarity
-    FROM (
-      SELECT
-        GREATEST((a."tagRelevance"->"tagId")::INTEGER, 0) AS a,
-        GREATEST((b."tagRelevance"->"tagId")::INTEGER, 0) AS b
-      FROM (
-        SELECT JSONB_OBJECT_KEYS("tagRelevance") AS "tagId"
-        FROM "Posts"
-        WHERE "_id" IN (post_id_a, post_id_b)
-      ) "allTags"
-      JOIN "Posts" a ON a."_id" = post_id_a
-      JOIN "Posts" b ON b."_id" = post_id_b
-    ) "tagRelevance";'
-  `,
-  // Check if candidate is a subset of target, where both are of the type Record<string, string>
-  `CREATE OR REPLACE FUNCTION fm_jsonb_subset(target jsonb, candidate jsonb)
-  RETURNS BOOLEAN AS $$
-  DECLARE
-    key text;
-  BEGIN
-    FOR key IN SELECT jsonb_object_keys(candidate)
-    LOOP
-      IF NOT (target ? key AND target->>key = candidate->>key) THEN
-        RETURN FALSE;
-      END IF;
-    END LOOP;
+let queriesExecuted = 0;
 
-    RETURN TRUE;
-  END;
-  $$ LANGUAGE plpgsql;
-  `,
-  // Calculate the dot product between two arrays of floats. The arrays should be
-  // of the same length. Note that the `pgvector` extension provides a much more
-  // efficient implementation of this that's written in C, but in order to use that
-  // on AWS RDS we need to upgrade to at least Postgres 15.2 - maybe something for
-  // the future?
-  `CREATE OR REPLACE FUNCTION fm_dot_product(
-    IN vector1 DOUBLE PRECISION[],
-    IN vector2 DOUBLE PRECISION[]
-  )
-    RETURNS DOUBLE PRECISION AS
-    $BODY$
-      BEGIN
-        RETURN(
-          SELECT SUM(mul)
-          FROM (
-            SELECT v1e * v2e AS mul
-            FROM UNNEST(vector1, vector2) AS t(v1e, v2e)
-          ) AS denominator
-        );
-      END;
-    $BODY$
-    LANGUAGE 'plpgsql'
-  `,
-  // Extract an array of strings containing all of the tag ids that are attached to a
-  // post. Only tags with a relevance score >= 1 are included.
-  `CREATE OR REPLACE FUNCTION fm_post_tag_ids(post_id TEXT)
-    RETURNS TEXT[] LANGUAGE sql IMMUTABLE AS
-   'SELECT ARRAY_AGG(tags."tagId")
-    FROM "Posts" p
-    JOIN (
-      SELECT JSONB_OBJECT_KEYS("tagRelevance") AS "tagId"
-      FROM "Posts"
-      WHERE "_id" = post_id
-    ) tags ON p."_id" = post_id
-    WHERE (p."tagRelevance"->tags."tagId")::INTEGER >= 1;'
-  `,
-];
+const logIfSlow = async <T>(
+  execute: () => Promise<T>,
+  describe: SqlDescription,
+  originalQuery: string,
+  quiet?: boolean,
+) => {
+  const getDescription = (): string => {
+    const describeString = typeof describe === "string" ? describe : describe();
+    // Truncate this at a pretty high limit, just to avoid logging things like
+    // entire rendered pages
+    return describeString.slice(0, 5000);
+  }
+
+  const queryID = ++queriesExecuted;
+  if (logAllQueries) {
+    // eslint-disable-next-line no-console
+    console.log(`Running Postgres query #${queryID}: ${getDescription()}`);
+  }
+
+  const startTime = new Date().getTime();
+  const result = await execute();
+  const endTime = new Date().getTime();
+
+  recordSqlQueryPerfMetric(originalQuery, startTime, endTime);
+
+  const milliseconds = endTime - startTime;
+  if (logAllQueries) {
+    // eslint-disable-next-line no-console
+    console.log(`Finished query #${queryID} (${milliseconds} ms) (${JSON.stringify(result).length}b)`);
+  } else if (milliseconds > SLOW_QUERY_REPORT_CUTOFF_MS && !quiet && !isAnyTest) {
+    // eslint-disable-next-line no-console
+    console.trace(`Slow Postgres query detected (${milliseconds} ms): ${getDescription()}`);
+  }
+
+  return result;
+}
+
+const wrapQueryMethod = <T>(
+  queryMethod: (query: string, values?: SqlQueryArgs) => Promise<T>,
+): ((
+  query: string,
+  values?: SqlQueryArgs,
+  describe?: SqlDescription,
+  quiet?: boolean,
+) => ReturnType<typeof queryMethod>) => {
+  return (
+    query: string,
+    values?: SqlQueryArgs,
+    describe?: SqlDescription,
+    quiet?: boolean,
+  ) => logIfSlow(
+    () => queryMethod(query, values),
+    describe ?? query,
+    query,
+    quiet,
+  ) as ReturnType<typeof queryMethod>;
+}
 
 export const createSqlConnection = async (
   url?: string,
   isTestingClient = false,
-  target: DbTarget = "write",
 ): Promise<SqlClient> => {
   url = url ?? process.env.PG_URL;
   if (!url) {
@@ -211,13 +217,15 @@ export const createSqlConnection = async (
     idleTimeoutMillis: pgConnIdleTimeoutMsSetting.get(),
   });
 
-  if (!isAnyTest) {
-    // eslint-disable-next-line no-console
-    console.log(`Connecting to postgres with a connection-pool max size of ${MAX_CONNECTIONS}`);
-  }
-
   const client: SqlClient = {
-    ...db,
+    ...omit(db, queryMethods),
+    none: wrapQueryMethod(db.none),
+    one: wrapQueryMethod(db.one),
+    oneOrNone: wrapQueryMethod(db.oneOrNone),
+    many: wrapQueryMethod(db.many),
+    manyOrNone: wrapQueryMethod(db.manyOrNone),
+    any: wrapQueryMethod(db.any),
+    multi: wrapQueryMethod(db.multi),
     $pool: db.$pool, // $pool is accessed with magic and isn't copied by spreading
     concat: (queries: Query<any>[]): string => {
       const compiled = queries.map((query) => {
@@ -228,15 +236,6 @@ export const createSqlConnection = async (
     },
     isTestingClient,
   };
-
-  if (target === "write") {
-    try {
-      await Promise.all(onConnectQueries.map((query) => queryWithLock(client, query)));
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error("Failed to run Postgres onConnectQuery:", e);
-    }
-  }
 
   return client;
 }

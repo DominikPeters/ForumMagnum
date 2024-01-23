@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { CommentFormDisplayMode } from './CommentsNewForm';
+import type { FormDisplayMode } from './CommentsNewForm';
 
 export interface CommentTreeOptions {
   /**
@@ -129,10 +129,10 @@ export interface CommentTreeOptions {
   noHash?: boolean,
   
   /**
-   * If provided, overrides the style of the reply button and reply
-   * form. Used in subforums.
+   * "default" | "minimalist" . If "minimalist", overrides the style of the reply button
+   * and reply form to be more like a chat interface.
    */
-  replyFormStyle?: CommentFormDisplayMode,
+  formStyle?: FormDisplayMode,
   
   /**
    * If provided, Reply buttons are replaced with something else. Used
@@ -163,4 +163,16 @@ export interface CommentTreeOptions {
    * Used for displaying inline replies to debate comments
    */
   hideParentCommentToggle?: boolean,
+  /**
+   * If set, hide the `ShowParentComment` toggle when we reach the top level comment
+   * Used to prevent us displaying quick takes multiple times
+   */
+  hideParentCommentToggleForTopLevel?: boolean,
+  
+  /**
+   * Comments have backgrounds in alternating colors, depending whether their
+   * nesting level is even or odd. If set, toggle which nesting level gets which
+   * background.
+   */
+  switchAlternatingHighlights?: boolean,
 }

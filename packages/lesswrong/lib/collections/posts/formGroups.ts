@@ -1,25 +1,30 @@
-import { preferredHeadingCase } from "../../forumTypeUtils";
-import { forumTypeSetting, taggingNamePluralCapitalSetting, taggingNamePluralSetting } from "../../instanceSettings";
+import { isFriendlyUI, preferredHeadingCase } from "../../../themes/forumTheme";
+import { isEAForum, taggingNamePluralCapitalSetting, taggingNamePluralSetting } from "../../instanceSettings";
 
-const isEAForum = forumTypeSetting.get() === "EAForum";
-
-export const formGroups: Partial<Record<string,FormGroupType>> = {
+export const formGroups: Partial<Record<string, FormGroupType<"Posts">>> = {
   default: {
     name: "default",
     order: 0,
     paddingStyle: true,
+  },
+  category: {
+    name: "category",
+    order: -20,
+    paddingStyle: true,
+    defaultStyle: true,
   },
   title: {
     name: "title",
     order: -10,
     paddingStyle: true,
     defaultStyle: true,
-    flexStyle: true,
+    flexAlignTopStyle: true,
   },
   coauthors: {
     order: 21,
     name: "coauthors",
-    label: "Coauthors"
+    label: "Coauthors",
+    hideHeader: true,
   },
   event: {
     name: "event details",
@@ -31,7 +36,7 @@ export const formGroups: Partial<Record<string,FormGroupType>> = {
     name: "socialPreview",
     order: 23,
     label: preferredHeadingCase("Edit Link Preview"),
-    startCollapsed: !isEAForum,
+    startCollapsed: !isFriendlyUI,
   },
   highlight: {
     order: 24,
@@ -90,7 +95,7 @@ export const formGroups: Partial<Record<string,FormGroupType>> = {
     startCollapsed: true
   },
   tags: {
-    order: isEAForum ? 22 : 60,
+    order: isEAForum ? 20 : 60,
     name: "tags",
     label: isEAForum ? `Set ${taggingNamePluralSetting.get()}` : `Apply ${taggingNamePluralCapitalSetting.get()}`,
     startCollapsed: false

@@ -1,16 +1,14 @@
-import React, { FC, useRef } from "react";
+import React, { FC } from "react";
 import { registerComponent, Components } from "../../lib/vulcan-lib";
 import { AnalyticsContext } from "../../lib/analyticsEvents";
 import { usePostsItem, PostsItemConfig } from "./usePostsItem";
-import { SoftUpArrowIcon } from "../icons/softUpArrowIcon";
 import { Link } from "../../lib/reactRouterWrapper";
 import { SECTION_WIDTH } from "../common/SingleColumnSection";
 import withErrorBoundary from "../common/withErrorBoundary";
 import classNames from "classnames";
 import { InteractionWrapper, useClickableCell } from "../common/useClickableCell";
-import { useCurrentUser } from "../common/withUser";
 
-export const styles = (theme: ThemeType): JssStyles => ({
+export const styles = (theme: ThemeType) => ({
   root: {
     display: "flex",
     alignItems: "center",
@@ -19,6 +17,9 @@ export const styles = (theme: ThemeType): JssStyles => ({
   },
   readCheckbox: {
     minWidth: 24,
+    [theme.breakpoints.down("xs")]: {
+      marginLeft: -12,
+    },
   },
   expandedCommentsWrapper: {
     display: "flex",
@@ -55,12 +56,13 @@ export const styles = (theme: ThemeType): JssStyles => ({
       paddingRight: 12,
     },
   },
-  karma: {
-    width: 50,
-    minWidth: 50,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
+  postsVote: {
+    position: "relative",
+    fontSize: 30,
+    textAlign: "center",
+    "& .PostsVoteDefault-voteBlock": {
+      marginTop: -5,
+    },
   },
   tagRelWrapper: {
     position: "relative",
@@ -68,13 +70,12 @@ export const styles = (theme: ThemeType): JssStyles => ({
     marginLeft: 44,
     marginRight: 14,
   },
-  voteArrow: {
-    color: theme.palette.grey[400],
-    margin: "-6px 0 2px 0",
-  },
   details: {
     flexGrow: 1,
     minWidth: 0, // flexbox black magic
+  },
+  titleWrapper: {
+    display: "inline",
   },
   title: {
     fontWeight: 600,
@@ -95,20 +96,6 @@ export const styles = (theme: ThemeType): JssStyles => ({
     display: "flex",
     alignItems: "center",
     whiteSpace: "nowrap",
-  },
-  metaLeft: {
-    flexGrow: 1,
-    display: "flex",
-    alignItems: "center",
-    overflow: "hidden",
-    "& > :first-child": {
-      marginRight: 5,
-    },
-  },
-  readTime: {
-    "@media screen and (max-width: 350px)": {
-      display: "none",
-    },
   },
   secondaryContainer: {
     display: "flex",
@@ -173,14 +160,22 @@ export const styles = (theme: ThemeType): JssStyles => ({
       opacity: 1,
     },
   },
+  karmaDisplay: {
+    width: 50,
+    minWidth: 50,
+  },
 });
 
-
 export type EAPostsItemProps = PostsItemConfig & {
-  classes: ClassesType,
+  hideSecondaryInfo?: boolean,
+  classes: ClassesType<typeof styles>,
 };
 
-const EAPostsItem = ({classes, ...props}: EAPostsItemProps) => {
+const EAPostsItem = ({
+  hideSecondaryInfo,
+  classes,
+  ...props
+}: EAPostsItemProps) => {
   const {
     post,
     postLink,
@@ -193,12 +188,12 @@ const EAPostsItem = ({classes, ...props}: EAPostsItemProps) => {
     showTrailingButtons,
     showMostValuableCheckbox,
     showDismissButton,
-    showArchiveButton,
     onDismiss,
     onArchive,
     resumeReading,
     strikethroughTitle,
     curatedIconLeft,
+    showIcons,
     isRead,
     showReadCheckbox,
     tooltipPlacement,
@@ -208,29 +203,33 @@ const EAPostsItem = ({classes, ...props}: EAPostsItemProps) => {
     condensedAndHiddenComments,
     isRepeated,
     analyticsProps,
+    isVoteable,
+    className,
   } = usePostsItem(props);
   const {onClick} = useClickableCell({href: postLink});
-  const authorExpandContainer = useRef(null);
 
   if (isRepeated) {
     return null;
   }
 
   const {
-    PostsTitle, PostsItemDate, ForumIcon, PostActionsButton, KarmaDisplay,
-    TruncatedAuthorsList, PostsItemTagRelevance, PostsItemTooltipWrapper,
+    PostsTitle, ForumIcon, PostActionsButton, EAKarmaDisplay, EAPostMeta,
+    PostsItemTagRelevance, PostsItemTooltipWrapper, PostsVote,
     PostsItemTrailingButtons, PostReadCheckbox, PostsItemNewCommentsWrapper,
+    PostMostValuableCheckbox,
   } = Components;
 
-  const SecondaryInfo = () => (
+  const SecondaryInfo = () => (hideSecondaryInfo || showMostValuableCheckbox) ? null : (
     <>
-      <a onClick={toggleComments} className={classNames(
-        classes.comments,
-        {[classes.newComments]: hasUnreadComments},
-      )}>
-        <ForumIcon icon="Comment" />
-        {commentCount}
-      </a>
+      <InteractionWrapper className={classes.interactionWrapper}>
+        <a onClick={toggleComments} className={classNames(
+          classes.comments,
+          {[classes.newComments]: hasUnreadComments},
+        )}>
+          <ForumIcon icon="Comment" />
+          {commentCount}
+        </a>
+      </InteractionWrapper>
       <div className={classes.postActions}>
         <InteractionWrapper className={classes.interactionWrapper}>
           <PostActionsButton post={post} popperGap={16} autoPlace vertical />
@@ -246,15 +245,23 @@ const EAPostsItem = ({classes, ...props}: EAPostsItemProps) => {
     </>
   );
 
+  // The nesting here gets a little messy: we need to add the extra `Link`
+  // around the title to make it right-clickable/cmd+clickable. However,
+  // clicking this adds a second history item when navigating to the post
+  // normally requiring the user to press back twice to get to where they
+  // started so we need to wrap that whole thing in an `InteractionWrapper`
+  // too.
   const TitleWrapper: FC = ({children}) => (
     <PostsItemTooltipWrapper post={post} placement={tooltipPlacement} As="span">
-      <Link to={postLink}>{children}</Link>
+      <InteractionWrapper className={classes.titleWrapper}>
+        <Link to={postLink}>{children}</Link>
+      </InteractionWrapper>
     </PostsItemTooltipWrapper>
   );
 
   return (
     <AnalyticsContext {...analyticsProps}>
-      <div className={classes.root}>
+      <div className={classNames(classes.root, className)}>
         {showReadCheckbox &&
           <div className={classes.readCheckbox}>
             <PostReadCheckbox post={post} width={14} />
@@ -262,12 +269,19 @@ const EAPostsItem = ({classes, ...props}: EAPostsItemProps) => {
         }
         <div className={classes.expandedCommentsWrapper}>
           <div className={classes.container} onClick={onClick}>
-            <div className={classes.karma}>
-              <div className={classes.voteArrow}>
-                <SoftUpArrowIcon />
-              </div>
-              <KarmaDisplay document={post} />
-            </div>
+            {isVoteable
+              ? (
+                <InteractionWrapper className={classNames(
+                  classes.interactionWrapper,
+                  classes.postsVote,
+                )}>
+                  <PostsVote post={post} />
+                </InteractionWrapper>
+              )
+              : (
+                <EAKarmaDisplay post={post} className={classes.karmaDisplay} />
+              )
+            }
             <div className={classes.details}>
               <PostsTitle
                 {...{
@@ -277,6 +291,7 @@ const EAPostsItem = ({classes, ...props}: EAPostsItemProps) => {
                   showPersonalIcon,
                   strikethroughTitle,
                   curatedIconLeft,
+                  showIcons,
                 }}
                 Wrapper={TitleWrapper}
                 read={isRead && !showReadCheckbox}
@@ -284,19 +299,7 @@ const EAPostsItem = ({classes, ...props}: EAPostsItemProps) => {
                 className={classes.title}
               />
               <div className={classes.meta}>
-                <div className={classes.metaLeft} ref={authorExpandContainer}>
-                  <TruncatedAuthorsList
-                    post={post}
-                    expandContainer={authorExpandContainer}
-                  />
-                  <div>
-                    {' · '}
-                    <PostsItemDate post={post} noStyles includeAgo />
-                    {(!post.fmCrosspost?.isCrosspost || post.fmCrosspost.hostedHere) && <span className={classes.readTime}>
-                      {' · '}{post.readTimeMinutes || 1}m read
-                    </span>}
-                  </div>
-                </div>
+                <EAPostMeta post={post} />
                 <div className={classNames(
                   classes.secondaryContainer,
                   classes.onlyMobile,
@@ -317,14 +320,19 @@ const EAPostsItem = ({classes, ...props}: EAPostsItemProps) => {
                 */}
               <SecondaryInfo />
             </div>
+            {showMostValuableCheckbox && <div className={classes.secondaryContainer}>
+              <InteractionWrapper className={classes.interactionWrapper}>
+                <PostMostValuableCheckbox post={post} />
+              </InteractionWrapper>
+            </div>}
             <InteractionWrapper className={classes.interactionWrapper}>
               <PostsItemTrailingButtons
+                showArchiveButton={false}
                 {...{
                   post,
                   showTrailingButtons,
                   showMostValuableCheckbox,
                   showDismissButton,
-                  showArchiveButton,
                   resumeReading,
                   onDismiss,
                   onArchive,

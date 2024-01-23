@@ -10,7 +10,7 @@ registerFragment(`
     }
     relevantTagIds
     relevantTags {
-      ...TagBasicInfo
+      ...TagPreviewFragment
     }
     tagCommentType
     parentCommentId
@@ -40,6 +40,7 @@ registerFragment(`
     extendedScore
     score
     voteCount
+    emojiReactors
     af
     afDate
     moveToAlignmentUserId
@@ -71,6 +72,16 @@ registerFragment(`
     rejected
     rejectedReason
     modGPTRecommendation
+    originalDialogueId
+  }
+`);
+
+registerFragment(`
+  fragment CommentsListWithTopLevelComment on Comment {
+    ...CommentsList
+    topLevelComment {
+      ...CommentsList
+    }
   }
 `);
 
@@ -145,6 +156,7 @@ registerFragment(`
     ...CommentsList
     post {
       ...PostsMinimumInfo
+      isRead
     }
     tag {
       ...TagBasicInfo

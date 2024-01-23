@@ -2,7 +2,7 @@ import React from 'react';
 import { registerComponent, Components } from '../../../lib/vulcan-lib';
 import SwipeableDrawer from '@material-ui/core/SwipeableDrawer';
 import classNames from 'classnames';
-import type { ToCData } from '../../../server/tableOfContents';
+import type { ToCData } from '../../../lib/tableOfContents';
 
 const styles = (theme: ThemeType): JssStyles => ({
   paperWithoutToC: {
@@ -79,7 +79,7 @@ const NavigationDrawer = ({open, handleOpen, handleClose, toc, classes}: {
       </div>
       <div className={classes.tableOfContents}>
         <Components.TableOfContentsList
-          sectionData={toc}
+          tocSections={toc.sections}
           title={null}
           onClickSection={() => handleClose()}
         />

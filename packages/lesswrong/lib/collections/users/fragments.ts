@@ -24,6 +24,7 @@ registerFragment(`
     afCommentCount
     spamRiskScore
     tagRevisionCount
+    reviewedByUserId
   }
 `);
 
@@ -39,10 +40,10 @@ registerFragment(`
       ...RevisionDisplay
     }
     howOthersCanHelpMe {
-      ...RevisionEdit
+      ...RevisionDisplay
     }
     howICanHelpOthers {
-      ...RevisionEdit
+      ...RevisionDisplay
     }
     profileTagIds
     profileTags {
@@ -82,7 +83,9 @@ registerFragment(`
     petrovPressedButtonDate
     petrovOptOut
     sortDraftsBy
-    ...SunshineUsersList
+    email
+    emails
+    banned
     ...SharedUserBooleans
     noindex
     paymentEmail
@@ -104,7 +107,6 @@ registerFragment(`
     services
     acceptedTos
     pageUrl
-    voteBanned
     banned
     isReviewed
     nullifyVotes
@@ -129,13 +131,7 @@ registerFragment(`
     lastNotificationsCheck
     bannedUserIds
     bannedPersonalUserIds
-    biography {
-      ...RevisionEdit
-    }
     moderationStyle
-    moderationGuidelines {
-      ...RevisionEdit
-    }
     noKibitz
     showHideKarmaOption
     markDownPostEditor
@@ -161,6 +157,7 @@ registerFragment(`
     whenConfirmationEmailSent
     hideSubscribePoke
     hideMeetupsPoke
+    hideHomeRHS
     noCollapseCommentsFrontpage
     noCollapseCommentsPosts
     noSingleLineComments
@@ -206,6 +203,23 @@ registerFragment(`
     interestedIn
     
     allowDatadogSessionReplay
+    hideFrontpageBook2020Ad
+
+    hideDialogueFacilitation
+    optedInToDialogueFacilitation
+    revealChecksToAdmins
+    notificationNewDialogueChecks
+    notificationYourTurnMatchForm
+
+    showDialoguesList
+    showMyDialogues
+    showMatches
+    showRecommendedPartners
+    hideActiveDialogueUsers
+
+    wrapped2023Viewed
+
+    hideSunshineSidebar
   }
 `);
 
@@ -225,7 +239,7 @@ registerFragment(`
 registerFragment(`
   fragment UsersCurrentPostRateLimit on User {
     _id
-    rateLimitNextAbleToPost
+    rateLimitNextAbleToPost(eventForm: $eventForm)
   }
 `);
 
@@ -252,6 +266,10 @@ registerFragment(`
         scoreChange
         title
         slug
+        addedReacts {
+          reactionType
+          userId
+        }
       }
       comments {
         _id
@@ -260,6 +278,10 @@ registerFragment(`
         postId
         tagSlug
         tagCommentType
+        addedReacts {
+          reactionType
+          userId
+        }
       }
       tagRevisions {
         _id
@@ -267,6 +289,10 @@ registerFragment(`
         tagId
         tagSlug
         tagName
+        addedReacts {
+          reactionType
+          userId
+        }
       }
     }
   }
@@ -313,7 +339,6 @@ registerFragment(`
     commentingOnOtherUsersDisabled
     conversationsDisabled
     snoozedUntilContentCount
-    voteBanned
     nullifyVotes
     deleteContent
     
@@ -418,7 +443,6 @@ registerFragment(`
     showHideKarmaOption
 
     # Ban & Purge
-    voteBanned
     nullifyVotes
     deleteContent
     banned
@@ -469,11 +493,13 @@ registerFragment(`
     notificationGroupAdministration
     notificationSubforumUnread
     notificationNewMention
+    notificationNewDialogueChecks
+    notificationYourTurnMatchForm
 
     hideFrontpageMap
     hideTaggingProgressBar
     hideFrontpageBookAd
-    hideFrontpageBook2019Ad
+    hideFrontpageBook2020Ad
 
     deleted
   }
@@ -542,3 +568,10 @@ registerFragment(`
     fmCrosspostUserId
   }
 `)
+
+registerFragment(`
+  fragment UsersOptedInToDialogueFacilitation on User {
+    _id
+    displayName
+  }
+`);

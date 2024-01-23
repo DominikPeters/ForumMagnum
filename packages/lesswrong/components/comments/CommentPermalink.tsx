@@ -2,7 +2,7 @@ import React from 'react';
 import { commentIsHidden } from '../../lib/collections/comments/helpers';
 import { postGetPageUrl } from '../../lib/collections/posts/helpers';
 import { useSingle } from '../../lib/crud/withSingle';
-import { forumTypeSetting } from '../../lib/instanceSettings';
+import { isLWorAF } from '../../lib/instanceSettings';
 import { Components, registerComponent } from '../../lib/vulcan-lib';
 
 const styles = (theme: ThemeType): JssStyles => ({
@@ -65,17 +65,15 @@ const CommentPermalink = ({ documentId, post, classes }: {
       Comment Permalink 
       <p>Error: Sorry, this comment is hidden</p>
     </div>
-    {forumTypeSetting.get() !== "EAForum" && (
-      <div className={classes.dividerMargins}>
-        <Divider />
-      </div>
-    )}
+    {isLWorAF && <div className={classes.dividerMargins}>
+      <Divider />
+    </div>}
   </div>
 
   const ogUrl = post ? postGetPageUrl(post, true) : undefined // open graph
   const canonicalUrl = post ? post.canonicalSource || ogUrl : undefined
   // For imageless posts this will be an empty string
-  const socialPreviewImageUrl = post ? post.socialPreviewImageUrl : undefined
+  const socialPreviewImageUrl = post ? post.socialPreviewData?.imageUrl : undefined
 
   const commentNodeProps = {
     treeOptions: {
@@ -118,11 +116,9 @@ const CommentPermalink = ({ documentId, post, classes }: {
           <a href={`#${documentId}`}>See in context</a>
         </div>
       </div>
-      {forumTypeSetting.get() !== "EAForum" && (
-        <div className={classes.dividerMargins}>
-          <Divider />
-        </div>
-      )}
+      {isLWorAF && <div className={classes.dividerMargins}>
+        <Divider />
+      </div>}
     </div>
   );
 }

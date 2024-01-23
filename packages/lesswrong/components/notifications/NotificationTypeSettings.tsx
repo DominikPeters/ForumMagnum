@@ -6,12 +6,15 @@ import PropTypes from 'prop-types';
 import { defaultNotificationTypeSettings, NotificationChannelOption } from '../../lib/collections/users/schema';
 import { getNotificationTypeByUserSetting } from '../../lib/notificationTypes';
 import type { PickedTime } from '../common/BatchTimePicker';
+import { isFriendlyUI } from '../../themes/forumTheme';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
     padding: 8,
   },
-  label: {},
+  label: {
+    fontFamily: isFriendlyUI ? theme.palette.fonts.sansSerifStack : undefined,
+  },
   settings: {
     paddingLeft: 20,
   },

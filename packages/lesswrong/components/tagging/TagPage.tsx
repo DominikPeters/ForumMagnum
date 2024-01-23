@@ -15,13 +15,17 @@ import { useCurrentUser } from '../common/withUser';
 import { MAX_COLUMN_WIDTH } from '../posts/PostsPage/PostsPage';
 import { EditTagForm } from './EditTagPage';
 import { useTagBySlug } from './useTag';
-import { isEAForum, taggingNameCapitalSetting, taggingNamePluralCapitalSetting, taggingNamePluralSetting } from '../../lib/instanceSettings';
+import { taggingNameCapitalSetting, taggingNamePluralCapitalSetting, taggingNamePluralSetting } from '../../lib/instanceSettings';
 import truncateTagDescription from "../../lib/utils/truncateTagDescription";
+import { getTagStructuredData } from "./TagPageRouter";
+import { HEADER_HEIGHT } from "../common/Header";
+import { isFriendlyUI } from "../../themes/forumTheme";
 
 export const tagPageHeaderStyles = (theme: ThemeType) => ({
   postListMeta: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "baseline",
+    marginBottom: 8,
   },
   relevance: {
     fontFamily: theme.palette.fonts.sansSerifStack,
@@ -49,14 +53,13 @@ export const styles = (theme: ThemeType): JssStyles => ({
       width: '100%',
     },
     position: 'absolute',
-    top: 90,
+    top: HEADER_HEIGHT,
     [theme.breakpoints.down('sm')]: {
       width: 'unset',
       '& > picture > img': {
         height: 200,
         width: '100%',
       },
-      top: 77,
       left: -4,
       right: -4,
     },
@@ -82,10 +85,10 @@ export const styles = (theme: ThemeType): JssStyles => ({
     }
   },
   title: {
-    ...theme.typography[isEAForum ? "display2" : "display3"],
-    ...theme.typography[isEAForum ? "headerStyle" : "commentStyle"],
+    ...theme.typography[isFriendlyUI ? "display2" : "display3"],
+    ...theme.typography[isFriendlyUI ? "headerStyle" : "commentStyle"],
     marginTop: 0,
-    fontWeight: isEAForum ? 700 : 600,
+    fontWeight: isFriendlyUI ? 700 : 600,
     ...theme.typography.smallCaps,
   },
   notifyMeButton: {
@@ -139,7 +142,7 @@ export const styles = (theme: ThemeType): JssStyles => ({
     "-webkit-line-clamp": 2,
     "-webkit-box-orient": 'vertical',
     overflow: 'hidden',
-    fontFamily: isEAForum ? theme.palette.fonts.sansSerifStack : undefined,
+    fontFamily: isFriendlyUI ? theme.palette.fonts.sansSerifStack : undefined,
   },
   relatedTagLink : {
     color: theme.palette.lwTertiary.dark
@@ -181,7 +184,7 @@ const PostsListHeading: FC<{
   classes: ClassesType,
 }> = ({tag, query, classes}) => {
   const {SectionTitle, PostsListSortDropdown} = Components;
-  if (isEAForum) {
+  if (isFriendlyUI) {
     return (
       <>
         <SectionTitle title={`Posts tagged ${tag.name}`} />
@@ -207,7 +210,7 @@ const TagPage = ({classes}: {
     PostsList2, ContentItemBody, Loading, AddPostsToTag, Error404, Typography,
     PermanentRedirect, HeadTags, UsersNameDisplay, TagFlagItem, TagDiscussionSection,
     TagPageButtonRow, ToCColumn, SubscribeButton, CloudinaryImage2, TagIntroSequence,
-    TagTableOfContents, ContentStyles,
+    TagTableOfContents, TagVersionHistoryButton, ContentStyles,
   } = Components;
   const currentUser = useCurrentUser();
   const { query, params: { slug } } = useLocation();
@@ -312,7 +315,7 @@ const TagPage = ({classes}: {
   const htmlWithAnchors = tag.tableOfContents?.html ?? tag.description?.html ?? "";
   let description = htmlWithAnchors;
   // EA Forum wants to truncate much less than LW
-  if (isEAForum) {
+  if (isFriendlyUI) {
     description = truncated
       ? truncateTagDescription(htmlWithAnchors, tag.descriptionTruncationCount)
       : htmlWithAnchors;
@@ -338,6 +341,7 @@ const TagPage = ({classes}: {
   >
     <HeadTags
       description={headTagDescription}
+      structuredData={getTagStructuredData(tag)}
       noIndex={tag.noindex}
     />
     {hoveredContributorId && <style>
@@ -389,7 +393,6 @@ const TagPage = ({classes}: {
           </div>
           <TagPageButtonRow tag={tag} editing={editing} setEditing={setEditing} className={classNames(classes.editMenu, classes.nonMobileButtonRow)} />
         </div>}
-        welcomeBox={null}
       >
         {(tag.parentTag || tag.subTags.length) ?
         <div className={classNames(classes.subHeading,classes.centralColumn)}>
@@ -415,14 +418,17 @@ const TagPage = ({classes}: {
             { revision && tag.description && (tag.description as TagRevisionFragment_description).user && <div className={classes.pastRevisionNotice}>
               You are viewing revision {tag.description.version}, last edited by <UsersNameDisplay user={(tag.description as TagRevisionFragment_description).user}/>
             </div>}
-            {editing ? <EditTagForm
-              tag={tag}
-              successCallback={ async () => {
-                setEditing(false)
-                await client.resetStore()
-              }}
-              cancelCallback={() => setEditing(false)}
-            /> :
+            {editing ? <div>
+              <EditTagForm
+                tag={tag}
+                successCallback={ async () => {
+                  setEditing(false)
+                  await client.resetStore()
+                }}
+                cancelCallback={() => setEditing(false)}
+              />
+              <TagVersionHistoryButton tagId={tag._id} />
+            </div> :
             <div onClick={clickReadMore}>
               <ContentStyles contentType="tag">
                 <ContentItemBody

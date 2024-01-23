@@ -1,8 +1,8 @@
 import moment from 'moment';
-import { getKarmaInflationSeries, timeSeriesIndexExpr } from '../../../server/karmaInflation/cache';
+import { getKarmaInflationSeries, timeSeriesIndexExpr } from './karmaInflation';
 import { combineIndexWithDefaultViewIndex, ensureIndex, ensureCustomPgIndex } from '../../collectionIndexUtils';
 import type { FilterMode, FilterSettings, FilterTag } from '../../filterSettings';
-import { forumTypeSetting, isEAForum } from '../../instanceSettings';
+import { isAF, isEAForum } from '../../instanceSettings';
 import { defaultVisibilityTags } from '../../publicSettings';
 import { frontpageTimeDecayExpr, postScoreModifiers, timeDecayExpr } from '../../scoring';
 import { viewFieldAllowAny, viewFieldNullOrMissing } from '../../vulcan-lib';
@@ -13,7 +13,6 @@ import { INITIAL_REVIEW_THRESHOLD, getPositiveVoteThreshold, QUICK_REVIEW_SCORE_
 import { jsonArrayContainsSelector } from '../../utils/viewUtils';
 import { EA_FORUM_COMMUNITY_TOPIC_ID } from '../tags/collection';
 import { filter, isEmpty, pick } from 'underscore';
-import { getABTestsMetadata, getUserABTestGroup } from '../../abTestImpl';
 
 export const DEFAULT_LOW_KARMA_THRESHOLD = -10
 export const MAX_LOW_KARMA_THRESHOLD = -1000
@@ -56,6 +55,7 @@ declare global {
     after?: Date|string|null,
     timeField?: keyof DbPost,
     postIds?: Array<string>,
+    notPostIds?: Array<string>,
     reviewYear?: number,
     reviewPhase?: ReviewPhase,
     excludeContents?: boolean,
@@ -167,7 +167,7 @@ export const sortings: Record<PostSortingMode,MongoSelector<DbPost>> = {
  * as it is *inclusive*. The parameters callback that handles it outputs
  * ~ $lt: before.endOf('day').
  */
-Posts.addDefaultView((terms: PostsViewTerms, _, context: ResolverContext) => {
+Posts.addDefaultView((terms: PostsViewTerms, _, context?: ResolverContext) => {
   const validFields: any = pick(terms, 'userId', 'groupId', 'af','question', 'authorIsUnreviewed');
   // Also valid fields: before, after, timeField (select on postedAt), excludeEvents, and
   // karmaThreshold (selects on baseScore).
@@ -177,7 +177,7 @@ Posts.addDefaultView((terms: PostsViewTerms, _, context: ResolverContext) => {
     {[`tagRelevance.${EA_FORUM_COMMUNITY_TOPIC_ID}`]: {$exists: false}},
   ]}
 
-  const alignmentForum = forumTypeSetting.get() === 'AlignmentForum' ? {af: true} : {}
+  const alignmentForum = isAF ? {af: true} : {}
   let params: any = {
     selector: {
       status: postStatuses.STATUS_APPROVED,
@@ -189,6 +189,8 @@ Posts.addDefaultView((terms: PostsViewTerms, _, context: ResolverContext) => {
       rejected: { $ne: true },
       hiddenRelatedQuestion: false,
       groupId: viewFieldNullOrMissing,
+      ...(terms.postIds && {_id: {$in: terms.postIds}}),
+      ...(terms.notPostIds && {_id: {$nin: terms.notPostIds}}),
       ...(terms.hideCommunity ? postCommentedExcludeCommunity : {}),
       ...validFields,
       ...alignmentForum
@@ -294,7 +296,7 @@ const getFrontpageFilter = (filterSettings: FilterSettings): {filter: any, softF
   }
 }
 
-function buildInflationAdjustedField(): any {
+export function buildInflationAdjustedField(): any {
   const karmaInflationSeries = getKarmaInflationSeries();
   return {
     karmaInflationAdjustedScore: {
@@ -320,7 +322,7 @@ function buildInflationAdjustedField(): any {
   }
 }
 
-function filterSettingsToParams(filterSettings: FilterSettings, terms: PostsViewTerms, context: ResolverContext): any {
+function filterSettingsToParams(filterSettings: FilterSettings, terms: PostsViewTerms, context?: ResolverContext): any {
   // We get the default tag relevance from the database config
   const tagFilterSettingsWithDefaults: FilterTag[] = filterSettings.tags.map(t =>
     t.filterMode === "TagDefault" ? {
@@ -352,9 +354,7 @@ function filterSettingsToParams(filterSettings: FilterSettings, terms: PostsView
     t => (t.filterMode!=="Hidden" && t.filterMode!=="Required" && t.filterMode!=="Default" && t.filterMode!==0)
   );
 
-  const useSlowerFrontpage = context.currentUser && isEAForum ?
-    getUserABTestGroup(context.currentUser, context.clientId || '', getABTestsMetadata()['slowerFrontpage']) === 'treatment'
-    : false
+  const useSlowerFrontpage = !!context?.currentUser && isEAForum
 
   const syntheticFields = {
     score: {$divide:[
@@ -1046,10 +1046,7 @@ Posts.addView("nearbyEvents", (terms: PostsViewTerms) => {
               // place in the codebase where we use this operator so it's probably not worth spending a
               // ton of time making this beautiful.
               $centerSphere: [ [ terms.lng, terms.lat ], (terms.distance || 100) / 3963.2 ],
-              ...(Posts.isPostgres()
-                ? { $comment: { locationName: `"googleLocation"->'geometry'->'location'` } }
-                : {}
-              ),
+              $comment: { locationName: `"googleLocation"->'geometry'->'location'` },
             }
           }
         },
@@ -1296,10 +1293,22 @@ ensureIndex(Posts,
   { name: "posts.recommendable" }
 );
 
+Posts.addView("hasEverDialogued", (terms: PostsViewTerms) => {
+  return {
+    selector: {
+      $or: [
+        {userId: terms.userId},
+        {"coauthorStatuses.userId": terms.userId}
+      ],
+      collabEditorDialogue: true,
+    },
+  }
+})
+
 Posts.addView("pingbackPosts", (terms: PostsViewTerms) => {
   return {
     selector: {
-      ...jsonArrayContainsSelector(Posts, "pingbacks.Posts", terms.postId),
+      ...jsonArrayContainsSelector("pingbacks.Posts", terms.postId),
       baseScore: {$gt: 0}
     },
     options: {
@@ -1419,7 +1428,6 @@ Posts.addView("stickied", (terms: PostsViewTerms, _, context?: ResolverContext) 
 Posts.addView("nominatablePostsByVote", (terms: PostsViewTerms, _, context?: ResolverContext) => {
   return {
     selector: {
-      _id: {$in: terms.postIds},
       userId: {$ne: context?.currentUser?._id,},
       isEvent: false
     },
@@ -1436,12 +1444,15 @@ ensureIndex(Posts,
 );
 
 
+// Exclude IDs that should not be included, e.g. were republished and postedAt date isn't actually in current review
+const reviewExcludedPostIds = ['MquvZCGWyYinsN49c'];
+
 // Nominations for the (≤)2020 review are determined by the number of votes
 Posts.addView("reviewVoting", (terms: PostsViewTerms) => {
   return {
     selector: {
       positiveReviewVoteCount: { $gte: getPositiveVoteThreshold(terms.reviewPhase) },
-      reviewCount: { $gte: INITIAL_REVIEW_THRESHOLD }
+      _id: { $nin: reviewExcludedPostIds }
     },
     options: {
       // This sorts the posts deterministically, which is important for the
@@ -1481,7 +1492,8 @@ Posts.addView("reviewFinalVoting", (terms: PostsViewTerms) => {
   return {
     selector: {
       reviewCount: { $gte: VOTING_PHASE_REVIEW_THRESHOLD },
-      positiveReviewVoteCount: { $gte: REVIEW_AND_VOTING_PHASE_VOTECOUNT_THRESHOLD }
+      positiveReviewVoteCount: { $gte: REVIEW_AND_VOTING_PHASE_VOTECOUNT_THRESHOLD },
+      _id: { $nin: reviewExcludedPostIds }
     },
     options: {
       // This sorts the posts deterministically, which is important for the
@@ -1521,10 +1533,25 @@ Posts.addView("myBookmarkedPosts", (terms: PostsViewTerms, _, context?: Resolver
   
   return {
     selector: {
-      _id: {$in: bookmarkedPostIds}
+      _id: {$in: bookmarkedPostIds},
+      isEvent: viewFieldAllowAny,
+      groupId: null
     },
     options: {
       sort: {},
     },
   };
 });
+
+
+/**
+ * For preventing both `PostsRepo.getRecentlyActiveDialogues` and `PostsRepo.getMyActiveDialogues` from being seq scans on Posts.
+ * Given the relatively small number of dialogues, `getMyActiveDialogues` still ends up being fast even though it needs to check each dialogue for userId/coauthorStatuses.
+ * 
+ * This also speeds up `UsersRepo.getUsersWhoHaveMadeDialogues` a bunch.
+ */
+void ensureCustomPgIndex(`
+  CREATE INDEX CONCURRENTLY IF NOT EXISTS "idx_Posts_max_postedAt_mostRecentPublishedDialogueResponseDate"
+  ON "Posts" (GREATEST("postedAt", "mostRecentPublishedDialogueResponseDate") DESC)
+  WHERE "collabEditorDialogue" IS TRUE;
+`);

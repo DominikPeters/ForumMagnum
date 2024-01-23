@@ -17,7 +17,7 @@ import { userIsDefaultSubscribed } from "../../lib/subscriptionUtil";
 const currentUserIsSubscribed = (
   currentUser: UsersCurrent|null,
   results: SubscriptionState[]|undefined,
-  subscriptionType: AnyBecauseTodo,
+  subscriptionType: SubscriptionType,
   collectionName: CollectionNameString,
   document: AnyBecauseTodo,
 ) => {
@@ -55,10 +55,12 @@ export const useNotifyMe = ({
   document,
   overrideSubscriptionType,
   hideIfNotificationsDisabled,
+  hideForLoggedOutUsers,
 }: {
   document: AnyBecauseTodo,
   overrideSubscriptionType?: SubscriptionType,
   hideIfNotificationsDisabled?: boolean,
+  hideForLoggedOutUsers?: boolean,
 }): NotifyMeConfig => {
   const currentUser = useCurrentUser();
   const {openDialog} = useDialog();
@@ -96,36 +98,7 @@ export const useNotifyMe = ({
     enableTotal: false,
     skip: !currentUser
   });
-
-  if (loading) {
-    return {
-      loading: true,
-    };
-  };
-
-  const isSubscribed = currentUserIsSubscribed(
-    currentUser,
-    results,
-    subscriptionType,
-    collectionName,
-    document,
-  );
-
-  // Can't subscribe to yourself
-  if (collectionName === 'Users' && document._id === currentUser?._id) {
-    return {
-      disabled: true,
-      loading: false,
-    };
-  }
-
-  if (hideIfNotificationsDisabled && !isSubscribed) {
-    return {
-      disabled: true,
-      loading: false,
-    };
-  }
-
+  
   const onSubscribe = async (e: MouseEvent) => {
     if (!currentUser) {
       openDialog({componentName: "LoginPopup"});
@@ -159,6 +132,52 @@ export const useNotifyMe = ({
     } catch(error) {
       flash({messageString: error.message});
     }
+  }
+  
+  // If we are hiding the notify element, don't return an onSubscribe.
+  if (!currentUser && hideForLoggedOutUsers) {
+    return {
+      loading: false
+    }
+  }
+  // By default, we allow logged out users to see the element and click on it,
+  // so that we can prompt them with the login/sign up buttons.
+  if (!currentUser) {
+    return {
+      loading: false,
+      disabled: false,
+      isSubscribed: false,
+      onSubscribe,
+    }
+  }
+
+  if (loading) {
+    return {
+      loading: true,
+    };
+  };
+
+  const isSubscribed = currentUserIsSubscribed(
+    currentUser,
+    results,
+    subscriptionType,
+    collectionName,
+    document,
+  );
+
+  // Can't subscribe to yourself
+  if (collectionName === 'Users' && document._id === currentUser?._id) {
+    return {
+      disabled: true,
+      loading: false,
+    };
+  }
+
+  if (hideIfNotificationsDisabled && !isSubscribed) {
+    return {
+      disabled: true,
+      loading: false,
+    };
   }
 
   return {

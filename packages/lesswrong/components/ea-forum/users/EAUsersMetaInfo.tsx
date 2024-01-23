@@ -64,7 +64,7 @@ const EAUsersMetaInfo = ({user, classes}: {
   user: UsersProfile,
   classes: ClassesType,
 }) => {
-  const userKarma = user.karma ?? 0;
+  const userKarma = user.karma;
   const userHasSocialMedia = Object.keys(SOCIAL_MEDIA_PROFILE_FIELDS).some(
     (field: SocialMediaProfileField) => user[field],
   );
@@ -74,7 +74,7 @@ const EAUsersMetaInfo = ({user, classes}: {
   return (
     <ContentStyles contentType="comment" className={classes.iconsRow}>
       <LWTooltip title={`${userKarma} karma`}>
-        <span className={classes.userMetaInfo}>
+        <span className={classes.userMetaInfo} id='karma-info'>
           <ForumIcon icon="Karma" className={classes.userMetaInfoIcon} />
           {userKarma} karma
         </span>

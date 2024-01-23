@@ -2,12 +2,13 @@ import React from 'react';
 import { Components, registerComponent } from '../../lib/vulcan-lib';
 import { useSubscribedLocation } from '../../lib/routeUtil';
 import { Link } from '../../lib/reactRouterWrapper';
+import { isFriendlyUI } from '../../themes/forumTheme';
 
 export const styles = (theme: ThemeType): JssStyles => ({
   subtitle: {
     marginLeft: '1em',
     paddingLeft: '1em',
-    textTransform: 'uppercase',
+    textTransform: isFriendlyUI ? undefined : 'uppercase',
     color: theme.palette.header.text,
     borderLeft: theme.palette.border.appBarSubtitleDivider,
   },
@@ -17,11 +18,14 @@ const HeaderSubtitle = ({classes}: {
   classes: ClassesType,
 }) => {
   const { currentRoute } = useSubscribedLocation();
-  if (!currentRoute) return null
+  if (!currentRoute) {
+    return null;
+  }
+
   const SubtitleComponent: any = currentRoute.subtitleComponentName ? Components[currentRoute.subtitleComponentName] : null;
   const subtitleString = currentRoute.subtitle;
   const subtitleLink = currentRoute.subtitleLink;
-  
+
   if (SubtitleComponent) {
     return <SubtitleComponent isSubtitle={true} />
   } else if (subtitleLink) {
@@ -34,7 +38,8 @@ const HeaderSubtitle = ({classes}: {
     </span>
   } else {
     return <span className={classes.subtitle}>
-      Test server
+      Test server{"   "}
+      <Components.HeaderEventSubtitle />
     </span>
   }
 }

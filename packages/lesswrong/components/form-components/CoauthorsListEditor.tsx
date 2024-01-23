@@ -3,11 +3,14 @@ import { registerComponent, Components } from '../../lib/vulcan-lib';
 import Checkbox from '@material-ui/core/Checkbox';
 import { makeSortableListComponent } from './sortableList';
 import find from 'lodash/find';
+import InputLabel from '@material-ui/core/InputLabel';
+import {isEAForum} from '../../lib/instanceSettings';
 
 const coauthorsListEditorStyles = (theme: ThemeType): JssStyles => ({
   root: {
     display: 'flex',
     marginLeft: 8,
+    marginTop: -4,
   },
   list: {
     display: "flex",
@@ -21,9 +24,13 @@ const coauthorsListEditorStyles = (theme: ThemeType): JssStyles => ({
     padding: '6px',
   },
   checkboxContainer: {
-    margin: '10px 0',
+    margin: '10px 0'
+  },
+  checkboxLabel: {
     fontSize: '1.1rem',
     fontWeight: theme.typography.body1.fontWeight ?? 400,
+    color: theme.palette.text.normal,
+    cursor: 'pointer'
   },
 });
 
@@ -73,7 +80,7 @@ const CoauthorsListEditor = ({ value, path, document, classes, label, updateCurr
         <Components.ErrorBoundary>
           <Components.UsersSearchAutoComplete 
             clickAction={addUserId} 
-            label={label} 
+            label={document.collabEditorDialogue ? "Add participant" : label} 
             />
         </Components.ErrorBoundary>
         <SortableList
@@ -93,15 +100,17 @@ const CoauthorsListEditor = ({ value, path, document, classes, label, updateCurr
           classes={classes}
         />
       </div>
-      <div className={classes.checkboxContainer}>
+      {isEAForum && <div className={classes.checkboxContainer}>
         <Components.LWTooltip
           title='If this box is left unchecked then these users will be asked if they want to be co-authors. If you click Publish with pending co-authors, publishing will be delayed for up to 24 hours to allow for co-authors to give permission.'
           placement='left'
         >
-          <Checkbox className={classes.checkbox} checked={hasPermission} onChange={toggleHasPermission} />
-          These users have agreed to co-author this post
+          <InputLabel className={classes.checkboxLabel}>
+            <Checkbox className={classes.checkbox} checked={hasPermission} onChange={toggleHasPermission} />
+            These users have agreed to co-author this post
+          </InputLabel>
         </Components.LWTooltip>
-      </div>
+      </div>}
     </>
   );
 }

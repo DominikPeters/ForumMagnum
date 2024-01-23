@@ -1,4 +1,4 @@
-import React, {useRef, useState, useCallback, useEffect} from 'react';
+import React, {useRef, useState, useCallback, useEffect, FC, ReactNode, useMemo} from 'react';
 import { Components, registerComponent } from '../lib/vulcan-lib';
 import { useUpdate } from '../lib/crud/withUpdate';
 import { Helmet } from 'react-helmet';
@@ -9,11 +9,11 @@ import { AnalyticsContext } from '../lib/analyticsEvents'
 import { UserContext } from './common/withUser';
 import { TimezoneWrapper } from './common/withTimezone';
 import { DialogManager } from './common/withDialog';
-import { CommentBoxManager } from './common/withCommentBox';
+import { CommentBoxManager } from './hooks/useCommentBox';
 import { ItemsReadContextWrapper } from './hooks/useRecordPostView';
 import { pBodyStyle } from '../themes/stylePiping';
 import { DatabasePublicSetting, googleTagManagerIdSetting } from '../lib/publicSettings';
-import { forumTypeSetting, isEAForum } from '../lib/instanceSettings';
+import { isAF, isLW, isLWorAF } from '../lib/instanceSettings';
 import { globalStyles } from '../themes/globalStyles/globalStyles';
 import { ForumOptions, forumSelect } from '../lib/forumTypeUtils';
 import { userCanDo } from '../lib/vulcan-users/permissions';
@@ -21,11 +21,19 @@ import NoSSR from 'react-no-ssr';
 import { DisableNoKibitzContext } from './users/UsersNameDisplay';
 import { LayoutOptions, LayoutOptionsContext } from './hooks/useLayoutOptions';
 // enable during ACX Everywhere
-import { HIDE_MAP_COOKIE } from '../lib/cookies/cookies';
+// import { HIDE_MAP_COOKIE } from '../lib/cookies/cookies';
+import { HEADER_HEIGHT } from './common/Header';
 import { useCookiePreferences } from './hooks/useCookiesWithConsent';
+import { useHeaderVisible } from './hooks/useHeaderVisible';
+import StickyBox from '../lib/vendor/react-sticky-box';
+import { isFriendlyUI } from '../themes/forumTheme';
+import { requireCssVar } from '../themes/cssVars';
+import { reviewIsActive } from '../lib/reviewUtils';
 
 export const petrovBeforeTime = new DatabasePublicSetting<number>('petrov.beforeTime', 0)
 const petrovAfterTime = new DatabasePublicSetting<number>('petrov.afterTime', 0)
+
+const STICKY_SECTION_TOP_MARGIN = 20;
 
 // These routes will have the standalone TabNavigationMenu (aka sidebar)
 //
@@ -36,7 +44,7 @@ const standaloneNavMenuRouteNames: ForumOptions<string[]> = {
     'home', 'allPosts', 'questions', 'library', 'Shortform', 'Sequences', 'collections', 'nominations', 'reviews',
   ],
   'AlignmentForum': ['alignment.home', 'library', 'allPosts', 'questions', 'Shortform'],
-  'EAForum': ['home', 'allPosts', 'questions', 'Shortform', 'eaLibrary', 'advice', 'advisorRequest', 'tagsSubforum', 'EAForumWrapped'],
+  'EAForum': ['home', 'allPosts', 'questions', 'Shortform', 'eaLibrary', 'tagsSubforum'],
   'default': ['home', 'allPosts', 'questions', 'Community', 'Shortform',],
 }
 
@@ -54,16 +62,22 @@ const styles = (theme: ThemeType): JssStyles => ({
     paddingBottom: 15,
     marginLeft: "auto",
     marginRight: "auto",
-    background: theme.palette.background.default,
     // Make sure the background extends to the bottom of the page, I'm sure there is a better way to do this
     // but almost all pages are bigger than this anyway so it's not that important
-    minHeight: `calc(100vh - ${forumTypeSetting.get() === "EAForum" ? 90 : 64}px)`,
+    minHeight: `calc(100vh - ${HEADER_HEIGHT}px)`,
     gridArea: 'main',
     [theme.breakpoints.down('sm')]: {
       paddingTop: 0,
       paddingLeft: 8,
       paddingRight: 8,
     },
+  },
+  wrapper: {
+    position: 'relative',
+    overflow: 'clip'
+  },
+  mainNoFooter: {
+    paddingBottom: 0,
   },
   mainFullscreen: {
     height: "100%",
@@ -88,24 +102,49 @@ const styles = (theme: ThemeType): JssStyles => ({
     flexBasis: 0,
     flexGrow: 1,
     overflow: "auto",
+    [theme.breakpoints.down('xs')]: {
+      overflow: "visible",
+    },
   },
   spacedGridActivated: {
     '@supports (grid-template-areas: "title")': {
       display: 'grid',
       gridTemplateAreas: `
-        "navSidebar ... main ... sunshine"
+        "navSidebar ... main imageGap sunshine"
       `,
       gridTemplateColumns: `
         minmax(0, min-content)
         minmax(0, 1fr)
         minmax(0, min-content)
-        minmax(0, 1.4fr)
+        minmax(0, ${isLW ? 7 : 1}fr)
         minmax(0, min-content)
       `,
     },
     [theme.breakpoints.down('md')]: {
       display: 'block'
     }
+  },
+  imageColumn: {
+    gridArea: 'imageGap',
+    [theme.breakpoints.down('md')]: {
+      display: 'none'
+    }
+  },
+  backgroundImage: {
+    position: 'absolute',
+    width: '57vw',
+    maxWidth: '1000px',
+    top: '-30px',
+    '-webkit-mask-image': `radial-gradient(ellipse at center top, ${theme.palette.text.alwaysBlack} 55%, transparent 70%)`,
+    
+    [theme.breakpoints.up(2000)]: {
+      right: '0px',
+    }
+  },
+  votingImage: {
+    width: '55vw',
+    maxWidth: '1000px',
+    marginLeft: '-15px'
   },
   unspacedGridActivated: {
     '@supports (grid-template-areas: "title")': {
@@ -123,6 +162,13 @@ const styles = (theme: ThemeType): JssStyles => ({
       width: '100%',
       paddingTop: 0,
     },
+    [theme.breakpoints.down('md')]: {
+      display: 'block'
+    }
+  },
+  eaHomeLayout: {
+    display: "flex",
+    alignItems: "start",
     [theme.breakpoints.down('md')]: {
       display: 'block'
     }
@@ -166,7 +212,36 @@ const styles = (theme: ThemeType): JssStyles => ({
       display: "none"
     }
   },
-})
+  stickyWrapper: {
+    transition: "transform 200ms ease-in-out",
+    transform: `translateY(${STICKY_SECTION_TOP_MARGIN}px)`,
+    marginBottom: 20,
+  },
+  stickyWrapperHeaderVisible: {
+    transform: `translateY(${HEADER_HEIGHT + STICKY_SECTION_TOP_MARGIN}px)`,
+  },
+});
+
+const wrappedBackgroundColor = requireCssVar("palette", "wrapped", "background")
+
+const StickyWrapper: FC<{
+  eaHomeLayout: boolean,
+  headerVisible: boolean,
+  headerAtTop: boolean,
+  children: ReactNode,
+  classes: ClassesType,
+}> = ({eaHomeLayout, headerVisible, headerAtTop, children, classes}) =>
+  eaHomeLayout
+    ? (
+      <StickyBox offsetTop={0} offsetBottom={20}>
+        <div className={classNames(classes.stickyWrapper, {
+          [classes.stickyWrapperHeaderVisible]: headerVisible && !headerAtTop,
+        })}>
+          {children}
+        </div>
+      </StickyBox>
+    )
+    : <>{children}</>;
 
 const Layout = ({currentUser, children, classes}: {
   currentUser: UsersCurrent|null,
@@ -174,18 +249,20 @@ const Layout = ({currentUser, children, classes}: {
   classes: ClassesType,
 }) => {
   const searchResultsAreaRef = useRef<HTMLDivElement|null>(null);
-  const [sideCommentsActive,setSideCommentsActive] = useState(false);
   const [disableNoKibitz, setDisableNoKibitz] = useState(false);
-  const [hideNavigationSidebar,setHideNavigationSidebar] = useState(!!(currentUser?.hideNavigationSidebar));
+  const hideNavigationSidebarDefault = currentUser ? !!(currentUser?.hideNavigationSidebar) : (reviewIsActive() && isLW)
+  const [hideNavigationSidebar,setHideNavigationSidebar] = useState(hideNavigationSidebarDefault);
   const theme = useTheme();
-  const { currentRoute, params: { slug }, pathname} = useLocation();
+  const {currentRoute, pathname} = useLocation();
   const layoutOptionsState = React.useContext(LayoutOptionsContext);
   const { explicitConsentGiven: cookieConsentGiven, explicitConsentRequired: cookieConsentRequired } = useCookiePreferences();
   const showCookieBanner = cookieConsentRequired === true && !cookieConsentGiven;
+  const {headerVisible, headerAtTop} = useHeaderVisible();
 
   // enable during ACX Everywhere
   // const [cookies] = useCookiesWithConsent()
-  // const renderCommunityMap = (forumTypeSetting.get() === "LessWrong") && (currentRoute?.name === 'home') && (!currentUser?.hideFrontpageMap) && !cookies[HIDE_MAP_COOKIE]
+  const renderCommunityMap = false // replace with following line to enable during ACX Everywhere
+  // (isLW) && (currentRoute?.name === 'home') && (!currentUser?.hideFrontpageMap) && !cookies[HIDE_MAP_COOKIE]
   
   const {mutate: updateUser} = useUpdate({
     collectionName: "Users",
@@ -230,7 +307,15 @@ const Layout = ({currentUser, children, classes}: {
   if (!layoutOptionsState) {
     throw new Error("LayoutOptionsContext not set");
   }
-  
+
+  const noKibitzContext = useMemo(
+    () => ({ disableNoKibitz, setDisableNoKibitz }),
+    [disableNoKibitz, setDisableNoKibitz]
+  );
+
+  // For the EAF Wrapped page, we change the header's background color to a dark blue.
+  const headerBackgroundColor = pathname.startsWith('/wrapped') ? wrappedBackgroundColor : undefined
+
   const render = () => {
     const {
       NavigationStandalone,
@@ -248,6 +333,11 @@ const Layout = ({currentUser, children, classes}: {
       IntercomWrapper,
       HomepageCommunityMap,
       CookieBanner,
+      AdminToggle,
+      SunshineSidebar,
+      EAHomeRightHandSide,
+      CloudinaryImage2,
+      ReviewVotingCanvas
     } = Components;
 
     const baseLayoutOptions: LayoutOptions = {
@@ -257,7 +347,7 @@ const Layout = ({currentUser, children, classes}: {
       // FIXME: This is using route names, but it would be better if this was
       // a property on routes themselves.
       standaloneNavigation: !currentRoute || forumSelect(standaloneNavMenuRouteNames).includes(currentRoute.name),
-      renderSunshineSidebar: !!currentRoute?.sunshineSidebar && !!(userCanDo(currentUser, 'posts.moderate.all') || currentUser?.groups?.includes('alignmentForumAdmins')),
+      renderSunshineSidebar: !!currentRoute?.sunshineSidebar && !!(userCanDo(currentUser, 'posts.moderate.all') || currentUser?.groups?.includes('alignmentForumAdmins')) && !currentUser?.hideSunshineSidebar,
       shouldUseGridLayout: !currentRoute || forumSelect(standaloneNavMenuRouteNames).includes(currentRoute.name),
       unspacedGridLayout: !!currentRoute?.unspacedGrid,
     }
@@ -268,15 +358,19 @@ const Layout = ({currentUser, children, classes}: {
     const renderSunshineSidebar = overrideLayoutOptions.renderSunshineSidebar ?? baseLayoutOptions.renderSunshineSidebar
     const shouldUseGridLayout = overrideLayoutOptions.shouldUseGridLayout ?? baseLayoutOptions.shouldUseGridLayout
     const unspacedGridLayout = overrideLayoutOptions.unspacedGridLayout ?? baseLayoutOptions.unspacedGridLayout
+    // The friendly home page has a unique grid layout, to account for the right hand side column.
+    const friendlyHomeLayout = isFriendlyUI && currentRoute?.name === 'home'
+
+    const showNewUserCompleteProfile = currentUser?.usernameUnset &&
+      !allowedIncompletePaths.includes(currentRoute?.name ?? "404");
 
     const renderPetrovDay = () => {
       const currentTime = (new Date()).valueOf()
       const beforeTime = petrovBeforeTime.get()
       const afterTime = petrovAfterTime.get()
     
-      return currentRoute?.name === "home"
-        && ('LessWrong' === forumTypeSetting.get())
-        && beforeTime < currentTime 
+      return currentRoute?.name === "home" && isLW
+        && beforeTime < currentTime
         && currentTime < afterTime
     }
 
@@ -286,9 +380,12 @@ const Layout = ({currentUser, children, classes}: {
       <TimezoneWrapper>
       <ItemsReadContextWrapper>
       <SidebarsWrapper>
-      <DisableNoKibitzContext.Provider value={{ disableNoKibitz, setDisableNoKibitz }}>
+      <DisableNoKibitzContext.Provider value={noKibitzContext}>
       <CommentOnSelectionPageWrapper>
-        <div className={classNames("wrapper", {'alignment-forum': forumTypeSetting.get() === 'AlignmentForum', [classes.fullscreen]: currentRoute?.fullscreen}) } id="wrapper">
+        <div className={classNames(
+          "wrapper",
+          {'alignment-forum': isAF, [classes.fullscreen]: currentRoute?.fullscreen, [classes.wrapper]: isLWorAF}
+        )} id="wrapper">
           <DialogManager>
             <CommentBoxManager>
               <Helmet>
@@ -311,30 +408,45 @@ const Layout = ({currentUser, children, classes}: {
               <noscript className="noscript-warning"> This website requires javascript to properly function. Consider activating javascript to get access to all site functionality. </noscript>
               {/* Google Tag Manager i-frame fallback */}
               <noscript><iframe src={`https://www.googletagmanager.com/ns.html?id=${googleTagManagerIdSetting.get()}`} height="0" width="0" style={{display:"none", visibility:"hidden"}}/></noscript>
-              
+
               {!currentRoute?.standalone && <Header
                 searchResultsArea={searchResultsAreaRef}
                 standaloneNavigationPresent={standaloneNavigation}
+                sidebarHidden={hideNavigationSidebar}
                 toggleStandaloneNavigation={toggleStandaloneNavigation}
-                stayAtTop={Boolean(currentRoute?.fullscreen || currentRoute?.staticHeader)}
+                stayAtTop={!!currentRoute?.staticHeader}
+                backgroundColor={headerBackgroundColor}
               />}
               {/* enable during ACX Everywhere */}
-              {/* {renderCommunityMap && <span className={classes.hideHomepageMapOnMobile}><HomepageCommunityMap dontAskUserLocation={true}/></span>} */}
+              {renderCommunityMap && <span className={classes.hideHomepageMapOnMobile}><HomepageCommunityMap dontAskUserLocation={true}/></span>}
               {renderPetrovDay() && <PetrovDayWrapper/>}
-              
+
               <div className={classNames(classes.standaloneNavFlex, {
                 [classes.spacedGridActivated]: shouldUseGridLayout && !unspacedGridLayout,
                 [classes.unspacedGridActivated]: shouldUseGridLayout && unspacedGridLayout,
-                [classes.fullscreenBodyWrapper]: currentRoute?.fullscreen}
+                [classes.eaHomeLayout]: friendlyHomeLayout && !renderSunshineSidebar,
+                [classes.fullscreenBodyWrapper]: currentRoute?.fullscreen,
+              }
               )}>
-                {standaloneNavigation && <NavigationStandalone
-                  sidebarHidden={hideNavigationSidebar}
-                  unspacedGridLayout={unspacedGridLayout}
-                  className={classes.standaloneNav}
-                />}
+                {isFriendlyUI && <AdminToggle />}
+                {standaloneNavigation &&
+                  <StickyWrapper
+                    eaHomeLayout={friendlyHomeLayout}
+                    headerVisible={headerVisible}
+                    headerAtTop={headerAtTop}
+                    classes={classes}
+                  >
+                    <NavigationStandalone
+                      sidebarHidden={hideNavigationSidebar}
+                      unspacedGridLayout={unspacedGridLayout}
+                      noTopMargin={friendlyHomeLayout}
+                    />
+                  </StickyWrapper>
+                }
                 <div ref={searchResultsAreaRef} className={classes.searchResultsArea} />
                 <div className={classNames(classes.main, {
                   [classes.whiteBackground]: useWhiteBackground,
+                  [classes.mainNoFooter]: currentRoute?.noFooter,
                   [classes.mainFullscreen]: currentRoute?.fullscreen,
                   [classes.mainUnspacedGrid]: shouldUseGridLayout && unspacedGridLayout,
                 })}>
@@ -342,16 +454,42 @@ const Layout = ({currentUser, children, classes}: {
                     <FlashMessages />
                   </ErrorBoundary>
                   <ErrorBoundary>
-                    {currentUser?.usernameUnset && !allowedIncompletePaths.includes(currentRoute?.name)
+                    {showNewUserCompleteProfile
                       ? <NewUserCompleteProfile currentUser={currentUser}/>
                       : children
                     }
                   </ErrorBoundary>
-                  {!currentRoute?.fullscreen && <Footer />}
+                  {!currentRoute?.fullscreen && !currentRoute?.noFooter && <Footer />}
                 </div>
+                { isLW && <>
+                  {
+                    currentRoute?.name === 'home' ? 
+                      <div className={classes.imageColumn}>
+                        <ReviewVotingCanvas />
+                        <CloudinaryImage2 className={classNames(classes.backgroundImage, classes.votingImage)} publicId="LWVote_copy_Watercolor_text_3_jbqyqv" darkPublicId="LWVote_copy_Dark_pdmmdn"/>
+                      </div> 
+                    : 
+                      (standaloneNavigation && <div className={classes.imageColumn}>
+                        <CloudinaryImage2 className={classes.backgroundImage} publicId="ohabryka_Topographic_aquarelle_book_cover_by_Thomas_W._Schaller_f9c9dbbe-4880-4f12-8ebb-b8f0b900abc1_m4k6dy_734413" darkPublicId={"ohabryka_Topographic_aquarelle_book_cover_by_Thomas_W._Schaller_f9c9dbbe-4880-4f12-8ebb-b8f0b900abc1_m4k6dy_734413_copy_lnopmw"}/>
+                      </div>)
+                  }
+                  </>
+                }
+                {!renderSunshineSidebar &&
+                  friendlyHomeLayout &&
+                  !showNewUserCompleteProfile &&
+                  <StickyWrapper
+                    eaHomeLayout={friendlyHomeLayout}
+                    headerVisible={headerVisible}
+                    headerAtTop={headerAtTop}
+                    classes={classes}
+                  >
+                    <EAHomeRightHandSide />
+                  </StickyWrapper>
+                }
                 {renderSunshineSidebar && <div className={classes.sunshine}>
                   <NoSSR>
-                    <Components.SunshineSidebar/>
+                    <SunshineSidebar/>
                   </NoSSR>
                 </div>}
               </div>

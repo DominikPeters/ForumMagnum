@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Components, registerComponent } from '../../lib/vulcan-lib';
 import { tagStyle, coreTagStyle, smallTagTextStyle } from './FooterTag';
-import { isEAForum, taggingNameSetting } from '../../lib/instanceSettings';
+import { taggingNameSetting } from '../../lib/instanceSettings';
 import classNames from 'classnames';
+import { isFriendlyUI } from '../../themes/forumTheme';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
@@ -26,7 +27,7 @@ const styles = (theme: ThemeType): JssStyles => ({
       border: theme.palette.border.grey300,
       color: theme.palette.grey[800]
     },
-    ...(isEAForum
+    ...(isFriendlyUI
       ? {
         ...coreTagStyle(theme),
         opacity: 0.6,
@@ -39,7 +40,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     position: 'relative',
     columnGap: 4,
     ...tagStyle(theme),
-    ...(isEAForum ? coreTagStyle(theme) : {}),
+    ...(isFriendlyUI ? coreTagStyle(theme) : {}),
     cursor: 'default'
   },
   smallTag: {
@@ -96,6 +97,7 @@ const TagsChecklist = ({
   tooltips = true,
   truncate = false,
   smallText = false,
+  shortNames = false,
 }: {
   onTagSelected?: (
     tag: { tagId: string; tagName: string; parentTagId?: string },
@@ -109,6 +111,7 @@ const TagsChecklist = ({
   tooltips?: boolean;
   truncate?: boolean;
   smallText?: boolean,
+  shortNames?: boolean,
 }) => {
   const { LWTooltip, LoadMore, ForumIcon } = Components;
   const [loadMoreClicked, setLoadMoreClicked] = useState(false);
@@ -144,7 +147,7 @@ const TagsChecklist = ({
   const handleOnTagSelected = (tag: AnyBecauseTodo, existingTagIds: AnyBecauseTodo) => onTagSelected({ tagId: tag._id, tagName: tag.name, parentTagId: tag.parentTag?._id }, existingTagIds)
   const handleOnTagRemoved = (tag: AnyBecauseTodo, existingTagIds: AnyBecauseTodo) => onTagRemoved({ tagId: tag._id, tagName: tag.name, parentTagId: tag.parentTag?._id }, existingTagIds)
 
-  const getTagName = ({tag}: TagsChecklistItem) => smallText
+  const getTagName = ({tag}: TagsChecklistItem) => smallText || shortNames
     ? tag.shortName ?? tag.name
     : tag.name;
 

@@ -1,4 +1,4 @@
-import { PublicInstanceSetting, forumTypeSetting, siteUrlSetting } from '../../instanceSettings';
+import { PublicInstanceSetting, isAF, siteUrlSetting } from '../../instanceSettings';
 import { getOutgoingUrl, getSiteUrl } from '../../vulcan-lib/utils';
 import { mongoFindOne } from '../../mongoQueries';
 import { userOwns, userCanDo } from '../../vulcan-users/permissions';
@@ -8,6 +8,12 @@ import { DatabasePublicSetting, cloudinaryCloudNameSetting } from '../../publicS
 import Localgroups from '../localgroups/collection';
 import moment from '../../moment-timezone';
 import { max } from "underscore";
+import { TupleSet, UnionOf } from '../../utils/typeGuardUtils';
+
+export const postCategories = new TupleSet(['post', 'linkpost', 'question'] as const);
+export type PostCategory = UnionOf<typeof postCategories>;
+export const postDefaultCategory = 'post';
+export const isPostCategory = (tab: string): tab is PostCategory => postCategories.has(tab)
 
 //////////////////
 // Link Helpers //
@@ -18,8 +24,10 @@ export const postGetLink = function (post: PostsBase|DbPost, isAbsolute=false, i
   const foreignId = "fmCrosspost" in post && post.fmCrosspost?.isCrosspost && !post.fmCrosspost.hostedHere
     ? post.fmCrosspost.foreignPostId
     : undefined;
-  const url = isRedirected ? getOutgoingUrl(post.url, foreignId ?? undefined) : post.url;
-  return !!post.url ? url : postGetPageUrl(post, isAbsolute);
+  if (post.url) {
+    return isRedirected ? getOutgoingUrl(post.url, foreignId ?? undefined) : post.url;
+  }
+  return postGetPageUrl(post, isAbsolute);
 };
 
 // Whether a post's link should open in a new tab or not
@@ -32,12 +40,12 @@ export const postGetLinkTarget = function (post: PostsBase|DbPost): string {
 ///////////////////
 
 // Get a post author's name
-export const postGetAuthorName = async function (post: DbPost) {
+export const postGetAuthorName = async function (post: DbPost): Promise<string> {
   var user = await mongoFindOne("Users", post.userId);
   if (user) {
     return userGetDisplayName(user);
   } else {
-    return post.author;
+    return post.author ?? "[unknown author]";
   }
 };
 
@@ -81,12 +89,18 @@ ${postGetLink(post, true, false)}
   return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 };
 
-// Select the social preview image for the post, using the manually-set
-// cloudinary image if available, or the auto-set from the post contents. If
-// neither of those are available, it will return null.
+// Select the social preview image for the post.
+// For events, we use their event image if that is set.
+// For other posts, we use the manually-set cloudinary image if available,
+// or the auto-set from the post contents. If neither of those are available,
+// it will return null.
 export const getSocialPreviewImage = (post: DbPost): string => {
-  const manualId = post.socialPreviewImageId
-  if (manualId) return `https://res.cloudinary.com/${cloudinaryCloudNameSetting.get()}/image/upload/c_fill,ar_1.91,g_auto/${manualId}`
+  // Note: in case of bugs due to failed migration of socialPreviewImageId -> socialPreview.imageId,
+  // edit this to support the old field "socialPreviewImageId", which still has the old data
+  const manualId = (post.isEvent && post.eventImageId) ? post.eventImageId : post.socialPreview?.imageId
+  if (manualId) {
+    return `https://res.cloudinary.com/${cloudinaryCloudNameSetting.get()}/image/upload/c_fill,ar_1.91,g_auto/${manualId}`
+  }
   const autoUrl = post.socialPreviewImageAutoUrl
   return autoUrl || ''
 }
@@ -97,7 +111,7 @@ export interface PostsMinimumForGetPageUrl {
   _id: string
   slug: string
   isEvent?: boolean
-  groupId?: string|undefined
+  groupId?: string | undefined | null
 }
 
 // Get URL of a post page.
@@ -114,6 +128,14 @@ export const postGetPageUrl = function(post: PostsMinimumForGetPageUrl, isAbsolu
   }
   return `${prefix}/posts/${post._id}/${post.slug}`;
 };
+
+export const postGetCommentsUrl = (
+  post: PostsMinimumForGetPageUrl,
+  isAbsolute = false,
+  sequenceId: string | null = null,
+): string => {
+  return postGetPageUrl(post, isAbsolute, sequenceId) + "#comments";
+}
 
 export const getPostCollaborateUrl = function (postId: string, isAbsolute=false, linkSharingKey?: string): string {
   const prefix = isAbsolute ? getSiteUrl().slice(0,-1) : '';
@@ -134,7 +156,7 @@ export const postGetEditUrl = function(postId: string, isAbsolute=false, linkSha
 }
 
 export const postGetCommentCount = (post: PostsBase|DbPost|PostSequenceNavigation_nextPost|PostSequenceNavigation_prevPost): number => {
-  if (forumTypeSetting.get() === 'AlignmentForum') {
+  if (isAF) {
     return post.afCommentCount || 0;
   } else {
     return post.commentCount || 0;
@@ -165,8 +187,8 @@ export const postGetAnswerCountStr = (count: number): string => {
   }
 }
 
-export const postGetLastCommentedAt = (post: PostsBase|DbPost): Date => {
-  if (forumTypeSetting.get() === 'AlignmentForum') {
+export const postGetLastCommentedAt = (post: PostsBase|DbPost): Date | null => {
+  if (isAF) {
     return post.afLastCommentedAt;
   } else {
     return post.lastCommentedAt;
@@ -174,7 +196,7 @@ export const postGetLastCommentedAt = (post: PostsBase|DbPost): Date => {
 }
 
 export const postGetLastCommentPromotedAt = (post: PostsBase|DbPost):Date|null => {
-  if (forumTypeSetting.get() === 'AlignmentForum') return null
+  if (isAF) return null
   // TODO: add an afLastCommentPromotedAt
   return post.lastCommentPromotedAt;
 }
@@ -228,7 +250,7 @@ export const postCanDelete = (currentUser: UsersCurrent|null, post: PostsBase): 
 }
 
 export const postGetKarma = (post: PostsBase|DbPost): number => {
-  const baseScore = forumTypeSetting.get() === 'AlignmentForum' ? post.afBaseScore : post.baseScore
+  const baseScore = isAF ? post.afBaseScore : post.baseScore
   return baseScore || 0
 }
 
@@ -355,6 +377,8 @@ export const postGetPrimaryTag = (post: PostsListWithVotes, includeNonCore = fal
 const allowTypeIIIPlayerSetting = new PublicInstanceSetting<boolean>('allowTypeIIIPlayer', false, "optional")
 const type3DateCutoffSetting = new DatabasePublicSetting<string>('type3.cutoffDate', '2023-05-01')
 const type3ExplicitlyAllowedPostIdsSetting = new DatabasePublicSetting<string[]>('type3.explicitlyAllowedPostIds', [])
+/** type3KarmaCutoffSetting is here to allow including high karma posts from before type3DateCutoffSetting */
+const type3KarmaCutoffSetting = new DatabasePublicSetting<number>('type3.karmaCutoff', Infinity)
 
 /**
  * Whether the post is allowed AI generated audio
@@ -367,7 +391,10 @@ export const isPostAllowedType3Audio = (post: PostsBase|DbPost): boolean => {
     const TYPE_III_ALLOWED_POST_IDS = type3ExplicitlyAllowedPostIdsSetting.get()
 
     return (
-      (new Date(post.postedAt) >= TYPE_III_DATE_CUTOFF || TYPE_III_ALLOWED_POST_IDS.includes(post._id)) &&
+      (new Date(post.postedAt) >= TYPE_III_DATE_CUTOFF ||
+        TYPE_III_ALLOWED_POST_IDS.includes(post._id) ||
+        post.baseScore > type3KarmaCutoffSetting.get() ||
+        post.forceAllowType3Audio) &&
       !post.draft &&
       !post.authorIsUnreviewed &&
       !post.rejected &&

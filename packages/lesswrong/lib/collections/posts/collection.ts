@@ -37,16 +37,9 @@ const options: MutationOptions<DbPost> = {
   },
 }
 
-interface ExtendedPostsCollection extends PostsCollection {
-  getSocialPreviewImage: (post: DbPost) => string
-  // In search/utils.ts
-  toAlgolia: (post: DbPost) => Promise<Array<AlgoliaDocument>|null>
-}
-
-export const Posts: ExtendedPostsCollection = createCollection({
+export const Posts = createCollection({
   collectionName: 'Posts',
   typeName: 'Post',
-  collectionType: 'pg',
   schema,
   resolvers: getDefaultResolvers('Posts'),
   mutations: getDefaultMutations('Posts', options),
@@ -74,6 +67,7 @@ makeEditable({
       canUpdate: ['members', 'sunshineRegiment', 'admins'],
       canCreate: ['members']
     },
+    hasToc: true,
   }
 })
 

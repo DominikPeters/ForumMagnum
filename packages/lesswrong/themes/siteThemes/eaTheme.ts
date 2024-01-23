@@ -1,5 +1,3 @@
-import { createMuiTheme } from '@material-ui/core/styles';
-
 const titleStack = [
   'GreekFallback', // Ensures that greek letters render consistently
   'Inter',
@@ -26,9 +24,6 @@ const sansSerifStack = [
   'Arial',
   'sans-serif'
 ].join(',')
-
-
-const defaultTheme = createMuiTheme()
 
 export const eaForumTheme: SiteThemeSpecification = {
   shadePalette: {
@@ -57,7 +52,16 @@ export const eaForumTheme: SiteThemeSpecification = {
       main: "#ffad08"
     },
     text: {
-      primaryAlert: "#137283"
+      primaryAlert: "#137283",
+      contentHeader: shadePalette.grey[1000],
+      debateComment: {
+        [1]: "#66C9F3",
+        [2]: "#FE927B",
+        [3]: "#F9E199",
+        [4]: "#4BF283",
+        [5]: "#CF72F0",
+        [6]: "#6C7BFF",
+      },
     },
     link: {
       visited: "#7130a6",
@@ -110,6 +114,7 @@ export const eaForumTheme: SiteThemeSpecification = {
     },
   }),
   make: (palette: ThemePalette) => {
+    const defaultBorderRadius = 6
     const basicText = {
       color: palette.grey[900],
       // use ems (not rems) to preserve relative height even if font-size is changed
@@ -122,7 +127,7 @@ export const eaForumTheme: SiteThemeSpecification = {
         mainLayoutPaddingTop: 20
       },
       borderRadius: {
-        default: 6,
+        default: defaultBorderRadius,
         small: 4,
       },
       typography: {
@@ -219,12 +224,11 @@ export const eaForumTheme: SiteThemeSpecification = {
           sansSerifStack
         },
         chapterTitle: {
-          fontSize: "1.25em",
           fontStyle: "unset",
           textTransform: "unset",
           color: palette.grey[800],
-          lineHeight: "1.75em",
-          fontFamily: serifStack
+          fontFamily: sansSerifStack,
+          fontWeight: 500,
         },
         largeChapterTitle: {
           fontSize: "2.2rem"
@@ -243,32 +247,12 @@ export const eaForumTheme: SiteThemeSpecification = {
             padding: ".7rem",
           }
         },
-        Header: {
-          root: {
-            height: 90,
-            '@media (max-width: 959.95px) and (min-width: 600px)': {
-              height: 86, // I don't know why headroom shifts by 4 pixels, don't ask me
-            },
-            [defaultTheme.breakpoints.down('xs')]: {
-              height: 77,
-            },
-          },
-          appBar: {
-            padding: 11,
-            '@media (min-width: 960px)': {
-              paddingLeft: 20,
-              paddingRight: 20,
-              paddingTop: 13,
-              paddingBottom: 13,
-            }
-          },
-        },
         MetaInfo: {
           root: {
             fontFamily: sansSerifStack
           }
         },
-        PostsVote: {
+        PostsVoteDefault: {
           voteScore: {
             paddingTop:4,
             paddingBottom:2,
@@ -332,14 +316,6 @@ export const eaForumTheme: SiteThemeSpecification = {
             display: 'none'
           }
         },
-        SequencesPage: {
-          root: {
-            paddingTop: 345,
-          },
-          banner: {
-            top: 77,
-          },
-        },
         EAAllTagsPage: {
           portal: {
             background: palette.grey[0],
@@ -387,6 +363,11 @@ export const eaForumTheme: SiteThemeSpecification = {
             marginRight: 12,
           }
         },
+        MuiIconButton: {
+          root: {
+            borderRadius: defaultBorderRadius
+          }
+        }
       }
     }
   }

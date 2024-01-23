@@ -1,6 +1,7 @@
 import './server/databaseSettings'
 
 import './server/vulcan-lib/index';
+import './server/apolloServer';
 import './lib/index';
 
 import './server/cronUtil';
@@ -12,6 +13,7 @@ import './server/postgresView';
 import './server/database-import/database_import_new';
 import './server/rss-integration/cron';
 import './server/rss-integration/callbacks';
+import './server/dialogues/cron';
 import './server/karmaInflation/cron';
 import './server/useractivities/cron';
 import './server/pageCache/cron';
@@ -26,16 +28,16 @@ import './server/ckEditor/ckEditorCallbacks';
 // Scripts
 import './server/scripts/sscImport';
 import './server/scripts/hpmorImport';
-import './server/scripts/algoliaExport';
-import './server/scripts/algoliaConfigureIndexes';
 import './server/scripts/backfillParentTags';
 import './server/scripts/brokenLinksReport';
+import './server/scripts/bestOfLessWrongTagUpdate';
 import './server/scripts/convertImagesToCloudinary';
 import './server/scripts/fixBodyField';
 import './server/scripts/fixKarmaField';
 import './server/scripts/fixEmailField';
 import './server/scripts/fixFrontpageCount';
 import './server/scripts/generateUserActivityReport';
+import './server/scripts/generateInflationAdjustedKarmaReport';
 import './server/scripts/voteMigration';
 import './server/scripts/slugDeduplication';
 import './server/scripts/debuggingScripts';
@@ -43,19 +45,22 @@ import './server/scripts/rerunAFvotes';
 import './server/scripts/nullifyVotes';
 import './server/scripts/fixSSCDrafts';
 import './server/scripts/fillUserEmail';
-import './server/scripts/migrateCollections';
 import './server/scripts/deletePgIndexes';
 import './server/scripts/dropTestingDatabases';
 import './server/scripts/dropAndSeedJestPg';
 import './server/scripts/makeMigrations';
 import './server/scripts/reviewGetResultsPost';
 import './server/scripts/sendWrappedNotifications';
+import './server/scripts/triggerWrappedRefresh';
+import './server/scripts/removeRsvp';
+import './server/scripts/regenerateUnicodeSlugs';
+import './server/scripts/checkPostForSockpuppetVoting';
+import './server/scripts/convertAllPostsToEAEmojis';
 
 import './server/scripts/oneOffBanSpammers'
 import './server/scripts/ensureEmailInEmails';
 import './server/scripts/exportPostDetails';
 import './server/scripts/legacyKarma_aggregate2';
-import './server/scripts/removeObsoleteIndexes';
 import './server/scripts/fillMissing';
 import './server/scripts/recomputeDenormalized';
 import './server/scripts/recomputeReceivedVoteCounts';
@@ -67,8 +72,11 @@ import "./server/scripts/importEAGUserInterests";
 import "./server/scripts/importLocalgroups";
 import "./server/scripts/setUserTagFilters";
 import "./server/scripts/randomRecommendationSamples";
-import "./server/scripts/languageModels/generateTaggingPostSets";
-import "./server/scripts/languageModels/testModGPTOnComments";
+import './server/scripts/cleanUpDuplicatePostAutosaves';
+import "./server/scripts/generativeModels/generateTaggingPostSets";
+import "./server/scripts/generativeModels/testModGPTOnComments";
+// doesn't pass unit tests but works fine. Leaving commented out for now
+// import './server/scripts/generativeModels/autoSpotlight';
 import "./server/scripts/mongoQueryToSQL";
 import './server/manualMigrations';
 import './server/manualMigrations/migrationsDashboardGraphql';
@@ -105,6 +113,7 @@ import './server/recommendations/UniquePostUpvoters';
 import './server/emails/emailTokens';
 import './server/partiallyReadSequences';
 import './server/eventReminders';
+import './server/prunePerfMetricsCron';
 
 import './server/gatherTownCron';
 
@@ -117,6 +126,7 @@ import './server/callbacks/localgroupCallbacks';
 import './server/callbacks/gardenCodeCallbacks';
 import './server/resolvers/commentResolvers';
 import './server/resolvers/notificationResolvers';
+import './server/resolvers/dialogueMessageResolvers';
 import './server/callbacks/postCallbacks';
 import './server/posts/validatePost';
 import './server/callbacks/chapterCallbacks';
@@ -136,6 +146,8 @@ import './server/callbacks/tagFlagCallbacks';
 import './server/callbacks/moderatorActionCallbacks';
 import './server/callbacks/advisorRequestsCallbacks';
 import './server/callbacks/digestCallbacks';
+import './server/callbacks/dialogueMatchPreferenceCallbacks';
+
 
 import './server/resolvers/alignmentForumMutations';
 import './server/callbacks/alignment-forum/callbacks';
@@ -161,6 +173,9 @@ import './server/resolvers/reviewVoteResolvers';
 import './server/resolvers/petrovDayResolvers';
 import './server/resolvers/analyticsResolvers';
 import './server/resolvers/moderationResolvers';
+import './server/resolvers/typingIndicatorsResolvers';
+import './server/resolvers/dialogueChecksResolvers';
+
 
 import './server/intercomSetup';
 import './server/callbacks/intercomCallbacks';
@@ -182,11 +197,10 @@ import './server/styleGeneration';
 
 import './server/embeddings';
 
-// Algolia Search Integration
-import './server/search/utils';
-import './server/search/callbacks';
-import './server/search/algoliaCron';
-
+// Elasticsearch integration
 import './server/search/elastic/ElasticExporter';
 import './server/search/elastic/elasticCallbacks';
 import './server/search/elastic/elasticGraphQL';
+
+// Incremental views
+import './server/analytics/analyticsCron';

@@ -5,7 +5,7 @@ import { useTracking } from "../../lib/analyticsEvents";
 const styles = (_theme: ThemeType) => ({
   expandedRoot: {
     "& .comments-node-root": {
-      marginBottom: 0,
+      marginBottom: 8,
     },
   },
 });
@@ -33,6 +33,8 @@ const QuickTakesListItem = ({quickTake, classes}: {
           }}
           comment={quickTake}
           loadChildrenSeparately
+          forceUnTruncated
+          forceUnCollapsed
         />
       </div>
     )

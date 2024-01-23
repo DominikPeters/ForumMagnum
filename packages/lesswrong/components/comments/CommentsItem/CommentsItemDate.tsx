@@ -1,12 +1,12 @@
 import React from 'react';
 import { Components, registerComponent } from '../../../lib/vulcan-lib';
 import { useCommentLink, UseCommentLinkProps } from './useCommentLink';
-import { isEAForum } from '../../../lib/instanceSettings';
 import classNames from 'classnames';
+import { isBookUI, isFriendlyUI } from '../../../themes/forumTheme';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
-    ...(isEAForum && {
+    ...(isFriendlyUI && {
       marginLeft: 2,
       marginRight: 7,
     }),
@@ -47,7 +47,10 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
 });
 
-type CommentsItemDateProps = UseCommentLinkProps & {classes: ClassesType};
+type CommentsItemDateProps = UseCommentLinkProps & {
+  comment: CommentsList,
+  classes: ClassesType
+};
 
 const CommentsItemDate = ({comment, classes, ...rest}: CommentsItemDateProps) => {
   const { FormatDate, ForumIcon } = Components
@@ -62,21 +65,19 @@ const CommentsItemDate = ({comment, classes, ...rest}: CommentsItemDateProps) =>
   } else {
     dateFormat = undefined;
   }
-
-  const dateNode = <FormatDate
-    date={comment.postedAt}
-    format={dateFormat}
-  />
   
   return (
     <span className={classNames(classes.root, {
       [classes.date]: !comment.answer,
       [classes.answerDate]: comment.answer,
     })}>
-      {isEAForum ? dateNode : <LinkWrapper>
-        {dateNode}
-        <ForumIcon icon="Link" className={classes.icon} />
-      </LinkWrapper>}
+      <LinkWrapper>
+        <FormatDate
+          date={comment.postedAt}
+          format={dateFormat}
+        />
+        {isBookUI && <ForumIcon icon="Link" className={classes.icon} />}
+      </LinkWrapper>
     </span>
   );
 }

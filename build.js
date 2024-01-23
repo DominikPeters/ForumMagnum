@@ -4,7 +4,7 @@ const fs = require('fs');
 const process = require('process');
 const { zlib } = require("mz");
 const { getDatabaseConfig, startSshTunnel, getOutputDir, setOutputDir } = require("./scripts/startup/buildUtil");
-const { setClientRebuildInProgress, setServerRebuildInProgress, generateBuildId, startAutoRefreshServer, initiateRefresh } = require("./scripts/startup/autoRefreshServer");
+const { setClientRebuildInProgress, setServerRebuildInProgress, generateBuildId, startAutoRefreshServer, initiateRefresh, startLint } = require("./scripts/startup/autoRefreshServer");
 /**
  * This is used for clean exiting in Github workflows by the dev
  * only route /api/quit
@@ -15,12 +15,11 @@ const [opts, args] = cliopts.parse(
   ["production", "Run in production mode"],
   ["settings", "A JSON config file for the server", "<file>"],
   ["db", "A path to a database connection config file", "<file>"],
-  ["mongoUrl", "A mongoDB connection connection string", "<url>"],
-  ["mongoUrlFile", "The name of a text file which contains a mongoDB URL for the database", "<file>"],
   ["postgresUrl", "A postgresql connection connection string", "<url>"],
   ["postgresUrlFile", "The name of a text file which contains a postgresql URL for the database", "<file>"],
   ["shell", "Open an interactive shell instead of running a webserver"],
   ["command", "Run the given server shell command, then exit", "<string>"],
+  ["lint", "Run the linter on site refresh"],
 );
 
 const defaultServerPort = 3000;
@@ -42,14 +41,11 @@ setOutputDir(`./build${serverPort === defaultServerPort ? "" : serverPort}`);
 
 // Two things this script should do, that it currently doesn't:
 //  * Provide a websocket server for signaling autorefresh
-//  * Start a local mongodb server, if no mongo URL was provided
-//      https://github.com/shelfio/jest-mongodb
 
 const isProduction = !!opts.production;
 const settingsFile = opts.settings || "settings.json"
 
 const databaseConfig = getDatabaseConfig(opts);
-process.env.MONGO_URL = databaseConfig.mongoUrl;
 process.env.PG_URL = databaseConfig.postgresUrl;
 
 if (databaseConfig.sshTunnelCommand) {
@@ -111,6 +107,9 @@ build({
     setClientRebuildInProgress(true);
     inProgressBuildId = generateBuildId();
     config.define.buildId = `"${inProgressBuildId}"`;
+    if (opts.lint) {
+      startLint();
+    }
   },
   onEnd: (config, buildResult, ctx) => {
     setClientRebuildInProgress(false);
@@ -161,6 +160,9 @@ build({
   run: cliopts.run && serverCli,
   onStart: (config, changedFiles, ctx) => {
     setServerRebuildInProgress(true);
+    if (opts.lint) {
+      startLint();
+    }
   },
   onEnd: () => {
     setServerRebuildInProgress(false);
@@ -173,8 +175,8 @@ build({
     ...serverBundleDefinitions,
   },
   external: [
-    "akismet-api", "mongodb", "canvas", "express", "mz", "pg", "pg-promise",
-    "mathjax", "mathjax-node", "mathjax-node-page", "jsdom", "@sentry/node", "node-fetch", "later", "turndown",
+    "akismet-api", "canvas", "express", "mz", "pg", "pg-promise", "mathjax", "mathjax-node",
+    "mathjax-node-page", "jsdom", "@sentry/node", "node-fetch", "later", "turndown",
     "apollo-server", "apollo-server-express", "graphql", "csso", "io-ts", "fp-ts",
     "bcrypt", "node-pre-gyp", "intercom-client", "node:*",
     "fsevents", "chokidar", "auth0", "dd-trace", "pg-formatter",

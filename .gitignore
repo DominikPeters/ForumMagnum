@@ -22,6 +22,8 @@ dump/
 dump/*
 
 settings*.json
+*conn.txt
+*settings.js
 
 .idea
 .tern-project

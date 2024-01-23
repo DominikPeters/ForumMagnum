@@ -4,9 +4,9 @@ import MoreHorizIcon from '@material-ui/icons/MoreHoriz';
 import MoreVertIcon from '@material-ui/icons/MoreVert';
 import { useCurrentUser } from '../../common/withUser';
 import { useTracking } from '../../../lib/analyticsEvents';
-import { isEAForum } from '../../../lib/instanceSettings';
 import { PopperPlacementType } from '@material-ui/core/Popper';
 import { useIsAboveBreakpoint } from '../../hooks/useScreenWidth';
+import { isFriendlyUI } from '../../../themes/forumTheme';
 
 const styles = (theme: ThemeType): JssStyles => ({
   root: {
@@ -14,7 +14,7 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
   icon: {
     verticalAlign: 'middle',
-    color: isEAForum ? theme.palette.grey[400] : undefined,
+    color: isFriendlyUI ? theme.palette.grey[400] : undefined,
     cursor: "pointer",
   },
   popper: {
@@ -23,11 +23,12 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
 })
 
-const PostActionsButton = ({post, vertical, popperGap, autoPlace, includeBookmark=true, classes}: {
+const PostActionsButton = ({post, vertical, popperGap, autoPlace, flip, includeBookmark=true, classes}: {
   post: PostsList|SunshinePostsList,
   vertical?: boolean,
   popperGap?: number,
   autoPlace?: boolean,
+  flip?: boolean,
   includeBookmark?: boolean,
   classes: ClassesType,
 }) => {
@@ -72,6 +73,7 @@ const PostActionsButton = ({post, vertical, popperGap, autoPlace, includeBookmar
       anchorEl={anchorEl.current}
       placement={popperPlacement}
       allowOverflow
+      flip={flip}
       style={gapStyle}
     >
       {/*FIXME: ClickAwayListener doesn't handle portals correctly, which winds up making submenus inoperable. But we do still need clickaway to close.*/}

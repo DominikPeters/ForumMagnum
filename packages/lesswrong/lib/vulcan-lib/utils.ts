@@ -10,16 +10,17 @@ import getSlug from 'speakingurl';
 import urlObject from 'url';
 import { siteUrlSetting } from '../instanceSettings';
 import { DatabasePublicSetting } from '../publicSettings';
-import type { ToCData } from '../../server/tableOfContents';
+import type { ToCData } from '../../lib/tableOfContents';
 import sanitizeHtml from 'sanitize-html';
+import { containsKana, fromKana } from "hepburn";
 
 export const logoUrlSetting = new DatabasePublicSetting<string | null>('logoUrl', null)
 
 interface UtilsType {
   // In lib/helpers.ts
-  getUnusedSlug: <T extends HasSlugType>(collection: CollectionBase<HasSlugType>, slug: string, useOldSlugs?: boolean, documentId?: string) => Promise<string>
-  getUnusedSlugByCollectionName: (collectionName: CollectionNameString, slug: string, useOldSlugs?: boolean, documentId?: string) => Promise<string>
-  slugIsUsed: (collectionName: CollectionNameString, slug: string) => Promise<boolean>
+  getUnusedSlug: (collection: CollectionBase<CollectionNameWithSlug>, slug: string, useOldSlugs?: boolean, documentId?: string) => Promise<string>
+  getUnusedSlugByCollectionName: (collectionName: CollectionNameWithSlug, slug: string, useOldSlugs?: boolean, documentId?: string) => Promise<string>
+  slugIsUsed: (collectionName: CollectionNameWithSlug, slug: string) => Promise<boolean>
   
   // In server/vulcan-lib/connectors.ts
   Connectors: any
@@ -88,17 +89,58 @@ export const makeAbsolute = function (url: string): string {
     return baseUrl+url;
 }
 
+const tryToFixUrl = (oldUrl: string, newUrl: string) => {
+  try {
+    // Only return the edited version if this actually fixed the problem
+    new URL(newUrl);
+    return newUrl;
+  } catch (e) {
+    return oldUrl;
+  }
+}
+
+// NOTE: validateUrl and tryToFixUrl are duplicates of the code in public/lesswrong-editor/src/url-validator-plugin.js,
+// which can't be imported directly because it is part of the editor bundle
+const validateUrl = (url: string) => {
+  try {
+    // This will validate the URL - importantly, it will fail if the
+    // protocol is missing
+    new URL(url);
+  } catch (e) {
+    if (url.search(/[^@]+@[^.]+\.[^\n\r\f]+$/) === 0) {
+      // Add mailto: to email addresses
+      return tryToFixUrl(url, `mailto:${url}`);
+    } else if (url.search(/\/.*/) === 0) {
+      // This is probably _meant_ to be relative. We could prepend the
+      // siteUrl from instanceSettings, but this seems unnecessarily
+      // risky - let's just do nothing.
+    } else if (url.search(/(https?:)?\/\//) !== 0) {
+      // Add https:// to anything else
+      return tryToFixUrl(url, `https://${url}`);
+    }
+  }
+
+  return url;
+}
+
 /**
  * @summary The global namespace for Vulcan utils.
  * @param {String} url - the URL to redirect
  * @param {String} foreignId - the optional ID of the foreign crosspost where this link is defined
  */
 export const getOutgoingUrl = function (url: string, foreignId?: string): string {
-  const result = getSiteUrl() + 'out?url=' + encodeURIComponent(url);
+  // If no protocol is specified, guess that it is https://
+  const cleanedUrl = validateUrl(url);
+
+  const result = getSiteUrl() + 'out?url=' + encodeURIComponent(cleanedUrl);
   return foreignId ? `${result}&foreignId=${encodeURIComponent(foreignId)}` : result;
 };
 
 export const slugify = function (s: string): string {
+  if (containsKana(s)) {
+    s = fromKana(s);
+  }
+
   var slug = getSlug(s, {
     truncate: 60
   });
@@ -116,7 +158,8 @@ export const slugify = function (s: string): string {
   return slug;
 };
 
-export const getDomain = function(url: string): string|null {
+export const getDomain = function(url: string | null): string|null {
+  if (!url) return null;
   try {
     const hostname = urlObject.parse(url).hostname
     return hostname!.replace('www.', '');
@@ -244,8 +287,16 @@ export const sanitizeAllowedTags = [
   'ol', 'nl', 'li', 'b', 'i', 'u', 'strong', 'em', 'strike', 's',
   'code', 'hr', 'br', 'div', 'table', 'thead', 'caption',
   'tbody', 'tr', 'th', 'td', 'pre', 'img', 'figure', 'figcaption',
-  'section', 'span', 'sub', 'sup', 'ins', 'del', 'iframe'
+  'section', 'span', 'sub', 'sup', 'ins', 'del', 'iframe', 'audio',
+  
+  //MathML elements (https://developer.mozilla.org/en-US/docs/Web/MathML/Element)
+  "math", "mi", "mn", "mo", "ms", "mspace", "mtext", "merror",
+  "mfrac", "mpadded", "mphantom", "mroot", "mrow", "msqrt", "mstyle",
+  "mmultiscripts", "mover", "mprescripts", "msub", "msubsup", "msup", "munder",
+  "munderover", "mtable", "mtd", "mtr",
 ]
+
+const cssSizeRegex = /^(?:\d|\.)+(?:px|em|%)$/;
 
 const allowedTableStyles = {
   'background-color': [/^.*$/],
@@ -256,19 +307,22 @@ const allowedTableStyles = {
   'border': [/^.*$/],
   'border-color': [/^.*$/],
   'border-style': [/^.*$/],
-  'width': [/^(?:\d|\.)+(?:px|em|%)$/],
-  'height': [/^(?:\d|\.)+(?:px|em|%)$/],
+  'width': [cssSizeRegex],
+  'height': [cssSizeRegex],
   'text-align': [/^.*$/],
   'vertical-align': [/^.*$/],
   'padding': [/^.*$/],
 };
+
+const allowedMathMLGlobalAttributes = ['mathvariant', 'dir', 'displaystyle', 'scriptlevel'];
 
 export const sanitize = function(s: string): string {
   return sanitizeHtml(s, {
     allowedTags: sanitizeAllowedTags,
     allowedAttributes:  {
       ...sanitizeHtml.defaults.allowedAttributes,
-      img: [ 'src' , 'srcset', 'alt'],
+      audio: [ 'controls', 'src', 'style' ],
+      img: [ 'src' , 'srcset', 'alt', 'style'],
       figure: ['style', 'class'],
       table: ['style'],
       tbody: ['style'],
@@ -277,10 +331,41 @@ export const sanitize = function(s: string): string {
       th: ['rowspan', 'colspan', 'style'],
       ol: ['start', 'reversed', 'type', 'role'],
       span: ['style', 'id', 'role'],
-      div: ['class', 'data-oembed-url', 'data-elicit-id', 'data-metaculus-id', 'data-manifold-slug', 'data-metaforecast-slug', 'data-owid-slug'],
+      div: ['class', 'data-oembed-url', 'data-elicit-id', 'data-metaculus-id', 'data-manifold-slug', 'data-metaforecast-slug', 'data-owid-slug', 'data-viewpoints-slug'],
       a: ['href', 'name', 'target', 'rel'],
       iframe: ['src', 'allowfullscreen', 'allow'],
       li: ['id', 'role'],
+
+      // Attributes for dialogues
+      section: ['class', 'message-id', 'user-id', 'user-order', 'submitted-date', 'display-name'],
+      
+      // Attributes for MathML elements
+      math: [...allowedMathMLGlobalAttributes, 'display'],
+      mi: allowedMathMLGlobalAttributes,
+      mn: allowedMathMLGlobalAttributes,
+      mtext: allowedMathMLGlobalAttributes,
+      merror: allowedMathMLGlobalAttributes,
+      mfrac: [...allowedMathMLGlobalAttributes, 'linethickness'],
+      mmultiscripts: allowedMathMLGlobalAttributes,
+      mo: [...allowedMathMLGlobalAttributes, 'fence', 'largeop', 'lspace', 'maxsize', 'minsize', 'movablelimits', 'rspace', 'separator', 'stretchy', 'symmetric'],
+      mover: [...allowedMathMLGlobalAttributes, 'accent'],
+      mpadded: [...allowedMathMLGlobalAttributes, 'depth','height','lspace','voffset','width'],
+      mphantom: allowedMathMLGlobalAttributes,
+      mprescripts: allowedMathMLGlobalAttributes,
+      mroot: allowedMathMLGlobalAttributes,
+      mrow: allowedMathMLGlobalAttributes,
+      ms: [...allowedMathMLGlobalAttributes, 'lquote','rquote'],
+      mspace: [...allowedMathMLGlobalAttributes, 'depth','height','width'],
+      msqrt: allowedMathMLGlobalAttributes,
+      mstyle: allowedMathMLGlobalAttributes,
+      msub: allowedMathMLGlobalAttributes,
+      msubsup: allowedMathMLGlobalAttributes,
+      msup: allowedMathMLGlobalAttributes,
+      mtable: allowedMathMLGlobalAttributes,
+      mtd: [...allowedMathMLGlobalAttributes, 'columnspan','rowspan'],
+      mtr: allowedMathMLGlobalAttributes,
+      munder: [...allowedMathMLGlobalAttributes, 'accentunder'],
+      munderover: [...allowedMathMLGlobalAttributes, 'accent','accentunder'],
     },
     allowedIframeHostnames: [
       'www.youtube.com', 'youtube.com',
@@ -290,19 +375,29 @@ export const sanitize = function(s: string): string {
       'metaforecast.org',
       'app.thoughtsaver.com',
       'ourworldindata.org',
-      'strawpoll.com'
+      'strawpoll.com',
+      'estimaker.app',
+      'viewpoints.xyz',
+      'calendly.com'
     ],
     allowedClasses: {
       span: [ 'footnote-reference', 'footnote-label', 'footnote-back-link' ],
-      div: [ 'spoilers', 'footnote-content', 'footnote-item', 'footnote-label', 'footnote-reference', 'metaculus-preview', 'manifold-preview', 'metaforecast-preview', 'owid-preview', 'elicit-binary-prediction', 'thoughtSaverFrameWrapper', 'strawpoll-embed' ],
+      div: [ 'spoilers', 'footnote-content', 'footnote-item', 'footnote-label', 'footnote-reference', 'metaculus-preview', 'manifold-preview', 'metaforecast-preview', 'owid-preview', 'elicit-binary-prediction', 'thoughtSaverFrameWrapper', 'strawpoll-embed', 'estimaker-preview', 'viewpoints-preview' ],
       iframe: [ 'thoughtSaverFrame' ],
       ol: [ 'footnotes' ],
       li: [ 'footnote-item' ],
     },
     allowedStyles: {
       figure: {
-        'width': [/^(?:\d|\.)+(?:px|em|%)$/],
-        'height': [/^(?:\d|\.)+(?:px|em|%)$/],
+        'width': [cssSizeRegex],
+        'height': [cssSizeRegex],
+        'padding': [/^.*$/],
+      },
+      img: {
+        'width': [cssSizeRegex],
+        'height': [cssSizeRegex],
+        'max-width': [cssSizeRegex],
+        'max-height': [cssSizeRegex],
         'padding': [/^.*$/],
       },
       table: {

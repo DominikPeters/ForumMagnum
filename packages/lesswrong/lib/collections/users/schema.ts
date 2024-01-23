@@ -5,9 +5,8 @@ import { userGetEditUrl } from '../../vulcan-users/helpers';
 import { userGroups, userOwns, userIsAdmin, userHasntChangedName } from '../../vulcan-users/permissions';
 import { formGroups } from './formGroups';
 import * as _ from 'underscore';
-import { schemaDefaultValue } from '../../collectionUtils';
-import { forumTypeSetting, hasEventsSetting, isEAForum, taggingNamePluralCapitalSetting, taggingNamePluralSetting, taggingNameSetting } from "../../instanceSettings";
-import { accessFilterMultiple, arrayOfForeignKeysField, denormalizedCountOfReferences, denormalizedField, foreignKeyField, googleLocationToMongoLocation, resolverOnlyField } from '../../utils/schemaUtils';
+import { hasEventsSetting, isAF, isEAForum, isLW, isLWorAF, taggingNamePluralCapitalSetting, taggingNamePluralSetting, taggingNameSetting } from "../../instanceSettings";
+import { accessFilterMultiple, arrayOfForeignKeysField, denormalizedCountOfReferences, denormalizedField, foreignKeyField, googleLocationToMongoLocation, resolverOnlyField, schemaDefaultValue } from '../../utils/schemaUtils';
 import { postStatuses } from '../posts/constants';
 import GraphQLJSON from 'graphql-type-json';
 import { REVIEW_NAME_IN_SITU, REVIEW_YEAR } from '../../reviewUtils';
@@ -16,6 +15,10 @@ import { userThemeSettings, defaultThemeOptions } from "../../../themes/themeNam
 import { postsLayouts } from '../posts/dropdownOptions';
 import type { ForumIconName } from '../../../components/common/ForumIcon';
 import { getCommentViewOptions } from '../../commentViewOptions';
+import { dialoguesEnabled, hasPostRecommendations } from '../../betas';
+import { isFriendlyUI } from '../../../themes/forumTheme';
+import { randomId } from '../../random';
+import { getUserABTestKey } from '../../abTestImpl';
 
 ///////////////////////////////////////
 // Order for the Schema is as follows. Change as you see fit:
@@ -166,6 +169,8 @@ const expandedFrontpageSectionsSettings = new SimpleSchema({
   community: {type: Boolean, optional: true, nullable: true},
   recommendations: {type: Boolean, optional: true, nullable: true},
   quickTakes: {type: Boolean, optional: true, nullable: true},
+  quickTakesCommunity: {type: Boolean, optional: true, nullable: true},
+  popularComments: {type: Boolean, optional: true, nullable: true},
 });
 
 const notificationTypeSettingsField = (overrideSettings?: Partial<NotificationTypeSettings>) => ({
@@ -274,7 +279,7 @@ export type RateLimitReason = "moderator"|"lowKarma"|"downvoteRatio"|"universal"
  * @summary Users schema
  * @type {Object}
  */
-const schema: SchemaType<DbUser> = {
+const schema: SchemaType<"Users"> = {
   username: {
     type: String,
     optional: true,
@@ -332,8 +337,9 @@ const schema: SchemaType<DbUser> = {
     input: 'checkbox',
     optional: true,
     canCreate: ['admins'],
-    canUpdate: ['admins'],
+    canUpdate: ['admins','realAdmins'],
     canRead: ['guests'],
+    ...schemaDefaultValue(false),
     group: adminGroup,
   },
   profile: {
@@ -391,7 +397,7 @@ const schema: SchemaType<DbUser> = {
     optional: true,
     canUpdate: ['sunshineRegiment', 'admins'],
     canCreate: ['sunshineRegiment', 'admins'],
-    canRead: ['guests'],
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
     order: 11,
     group: formGroups.default,
   },
@@ -430,7 +436,7 @@ const schema: SchemaType<DbUser> = {
     },
     form: {
       // Will always be disabled for mods, because they cannot read hasAuth0Id
-      disabled: ({document}: AnyBecauseTodo) => forumTypeSetting.get() === "EAForum" && !document.hasAuth0Id,
+      disabled: ({document}: AnyBecauseTodo) => isEAForum && !document.hasAuth0Id,
     },
     // unique: true // note: find a way to fix duplicate accounts before enabling this
   },
@@ -471,9 +477,9 @@ const schema: SchemaType<DbUser> = {
   noindex: {
     type: Boolean,
     optional: true,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ['guests'],
-    canUpdate: ['admins'],
+    canUpdate: ['admins', 'sunshineRegiment'],
     order: 48,
     group: formGroups.adminOptions,
     label: "No Index",
@@ -488,7 +494,7 @@ const schema: SchemaType<DbUser> = {
     optional: true,
     control: 'checkboxgroup',
     canCreate: ['admins'],
-    canUpdate: ['alignmentForumAdmins', 'admins'],
+    canUpdate: ['alignmentForumAdmins', 'admins', 'realAdmins'],
     canRead: ['guests'],
     group: adminGroup,
     form: {
@@ -561,7 +567,7 @@ const schema: SchemaType<DbUser> = {
     canCreate: ['members'],
     canUpdate: ownsOrIsAdmin,
     canRead: ownsOrIsAdmin,
-    hidden: forumTypeSetting.get() !== "EAForum",
+    hidden: isLWorAF,
     control: "ThemeSelect",
     order: 1,
     group: formGroups.siteCustomizations,
@@ -572,7 +578,7 @@ const schema: SchemaType<DbUser> = {
     optional: true,
     hidden: true,
     canCreate: ['members'],
-    canRead: [userOwns],
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
     canUpdate: [userOwns],
   },
 
@@ -585,9 +591,9 @@ const schema: SchemaType<DbUser> = {
     control: 'UsersEmailVerification',
     canRead: ['members'],
     // EA Forum does not care about email verification
-    canUpdate: forumTypeSetting.get() === 'EAForum' ?
-      [] :
-      [userOwns, 'sunshineRegiment', 'admins'],
+    canUpdate: isEAForum ?
+      [userOwns, 'sunshineRegiment', 'admins'] :
+      [],
     canCreate: ['members'],
   },
 
@@ -595,7 +601,7 @@ const schema: SchemaType<DbUser> = {
   legacy: {
     type: Boolean,
     optional: true,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     hidden: true,
     canRead: [userOwns, 'admins'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
@@ -647,7 +653,7 @@ const schema: SchemaType<DbUser> = {
     group: formGroups.siteCustomizations,
     allowedValues: ['listView', 'gridView'],
     ...schemaDefaultValue('listView'),
-    defaultValue: "listView",
+    hidden: isEAForum,
     control: "select",
     form: {
       options: function () { // options for the select form control
@@ -678,7 +684,7 @@ const schema: SchemaType<DbUser> = {
     canRead: [userOwns, 'admins'],
     canUpdate: [userOwnsAndInGroup('trustLevel1'), 'sunshineRegiment', 'admins'],
     canCreate: ['members', 'sunshineRegiment', 'admins'],
-    hidden: forumTypeSetting.get() !== 'EAForum',
+    hidden: !isEAForum,
     control: 'checkbox',
     group: formGroups.siteCustomizations,
     order: 69,
@@ -704,7 +710,7 @@ const schema: SchemaType<DbUser> = {
     order: 71,
     type: Boolean,
     optional: true,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     group: formGroups.siteCustomizations,
@@ -719,7 +725,7 @@ const schema: SchemaType<DbUser> = {
     order: 72,
     type: Boolean,
     optional: true,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     control: 'checkbox',
@@ -731,8 +737,8 @@ const schema: SchemaType<DbUser> = {
     order: 80,
     type: Boolean,
     optional: true,
-    defaultValue: false,
-    canRead: [userOwns],
+    ...schemaDefaultValue(false),
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     control: 'checkbox',
     group: formGroups.siteCustomizations,
@@ -743,12 +749,12 @@ const schema: SchemaType<DbUser> = {
     order: 90,
     type: Boolean,
     optional: true,
-    defaultValue: false,
-    canRead: [userOwns],
+    ...schemaDefaultValue(false),
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     control: 'checkbox',
     group: formGroups.siteCustomizations,
-    hidden: forumTypeSetting.get() !== 'AlignmentForum',
+    hidden: !isAF,
     label: "Hide explanations of how AIAF submissions work for non-members", //TODO: just hide this in prod
   },
   
@@ -756,8 +762,9 @@ const schema: SchemaType<DbUser> = {
     order: 91,
     type: Boolean,
     optional: true,
+    nullable: false,
     group: formGroups.siteCustomizations,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     canCreate: ['members'],
@@ -769,8 +776,9 @@ const schema: SchemaType<DbUser> = {
     order: 92,
     type: Boolean,
     optional: true,
+    nullable: false,
     group: formGroups.siteCustomizations,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     canCreate: ['members'],
@@ -782,8 +790,9 @@ const schema: SchemaType<DbUser> = {
     order: 93,
     type: Boolean,
     optional: true,
+    nullable: false,
     group: formGroups.siteCustomizations,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     canCreate: ['members'],
@@ -795,9 +804,10 @@ const schema: SchemaType<DbUser> = {
     order: 93,
     type: Boolean,
     optional: true,
+    nullable: false,
     hidden: !isEAForum,
     group: formGroups.siteCustomizations,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ["guests"],
     canUpdate: [userOwns, "sunshineRegiment", "admins"],
     canCreate: ["members"],
@@ -820,9 +830,10 @@ const schema: SchemaType<DbUser> = {
     order: 94,
     type: Boolean,
     optional: true,
-    hidden: forumTypeSetting.get() !== 'EAForum',
+    nullable: false,
+    hidden: !isEAForum,
     group: formGroups.siteCustomizations,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     canCreate: ['members'],
@@ -834,9 +845,10 @@ const schema: SchemaType<DbUser> = {
     order: 95,
     type: Boolean,
     optional: true,
-    hidden: !isEAForum,
+    nullable: false,
+    hidden: !hasPostRecommendations,
     group: formGroups.siteCustomizations,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ["guests"],
     canUpdate: [userOwns, "sunshineRegiment", "admins"],
     canCreate: ["members"],
@@ -848,9 +860,9 @@ const schema: SchemaType<DbUser> = {
     order: 96,
     type: Boolean,
     optional: true,
-    nullable: true,
+    nullable: true,//TODO not-null – examine this
     group: formGroups.siteCustomizations,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     canCreate: ['members'],
@@ -865,9 +877,9 @@ const schema: SchemaType<DbUser> = {
   acceptedTos: {
     type: Boolean,
     optional: true,
-    nullable: true,
+    nullable: false,
     hidden: true,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: [userOwns, 'sunshineRegiment', 'admins'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     canCreate: ['members'],
@@ -1004,6 +1016,7 @@ const schema: SchemaType<DbUser> = {
     optional: true,
     // TODO: add nullable: true
     canRead: ['guests'],
+    ...schemaDefaultValue(0),
   },
 
   goodHeartTokens: {
@@ -1068,7 +1081,7 @@ const schema: SchemaType<DbUser> = {
     canCreate: ['sunshineRegiment', 'admins'],
     optional: true,
     label: "Banned Users (All)",
-    control: 'UsersListEditor'
+    control: 'FormUsersListEditor'
   },
   'bannedUserIds.$': {
     type: String,
@@ -1085,7 +1098,7 @@ const schema: SchemaType<DbUser> = {
     canCreate: ['sunshineRegiment', 'admins'],
     optional: true,
     label: "Banned Users (Personal)",
-    control: 'UsersListEditor',
+    control: 'FormUsersListEditor',
     tooltip: "Users who are banned from commenting on your personal blogposts (will not affect posts promoted to frontpage)"
   },
   "bannedPersonalUserIds.$": {
@@ -1099,11 +1112,6 @@ const schema: SchemaType<DbUser> = {
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     optional: true,
     hidden: true,
-    onUpdate: ({data, currentUser, oldDocument}) => {
-      if (data?.bookmarkedPostsMetadata) {
-        return _.uniq(data?.bookmarkedPostsMetadata, 'postId')
-      }
-    },
     ...arrayOfForeignKeysField({
       idFieldName: "bookmarkedPostsMetadata",
       resolverName: "bookmarkedPosts",
@@ -1111,6 +1119,11 @@ const schema: SchemaType<DbUser> = {
       type: "Post",
       getKey: (obj) => obj.postId
     }),
+    onUpdate: ({data, currentUser, oldDocument}) => {
+      if (data?.bookmarkedPostsMetadata) {
+        return _.uniq(data?.bookmarkedPostsMetadata, 'postId')
+      }
+    },
   },
 
   "bookmarkedPostsMetadata.$": {
@@ -1135,11 +1148,6 @@ const schema: SchemaType<DbUser> = {
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     optional: true,
     hidden: true,
-    onUpdate: ({data, currentUser, oldDocument}) => {
-      if (data?.hiddenPostsMetadata) {
-        return uniqBy(data?.hiddenPostsMetadata, 'postId')
-      }
-    },
     ...arrayOfForeignKeysField({
       idFieldName: "hiddenPostsMetadata",
       resolverName: "hiddenPosts",
@@ -1147,6 +1155,11 @@ const schema: SchemaType<DbUser> = {
       type: "Post",
       getKey: (obj) => obj.postId
     }),
+    onUpdate: ({data, currentUser, oldDocument}) => {
+      if (data?.hiddenPostsMetadata) {
+        return uniqBy(data?.hiddenPostsMetadata, 'postId')
+      }
+    },
   },
 
   "hiddenPostsMetadata.$": {
@@ -1173,7 +1186,7 @@ const schema: SchemaType<DbUser> = {
   deleted: {
     type: Boolean,
     optional: true,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     canRead: ['guests'],
     canUpdate: ['members', 'admins'],
     label: 'Deactivate',
@@ -1182,6 +1195,7 @@ const schema: SchemaType<DbUser> = {
     group: formGroups.deactivate,
   },
 
+  // DEPRECATED
   // voteBanned: All future votes of this user have weight 0
   voteBanned: {
     type: Boolean,
@@ -1191,7 +1205,8 @@ const schema: SchemaType<DbUser> = {
     canCreate: ['admins'],
     control: 'checkbox',
     group: formGroups.banUser,
-    label: 'Set all future votes of this user to have zero weight'
+    label: 'Set all future votes of this user to have zero weight',
+    hidden: true,
   },
 
   // nullifyVotes: Set all historical votes of this user to 0, and make any future votes have a vote weight of 0
@@ -1333,13 +1348,18 @@ const schema: SchemaType<DbUser> = {
   },
   notificationAlignmentSubmissionApproved: {
     label: "Alignment Forum submission approvals",
-    hidden: forumTypeSetting.get() === 'EAForum',
+    hidden: !isLWorAF,
     ...notificationTypeSettingsField({ channel: "both"})
   },
   notificationEventInRadius: {
     label: "New events in my notification radius",
     hidden: !hasEventsSetting.get(),
     ...notificationTypeSettingsField({ channel: "both" }),
+  },
+  notificationKarmaPowersGained: {
+    label: "Karma powers gained",
+    hidden: true,
+    ...notificationTypeSettingsField({ channel: "onsite" }),
   },
   notificationRSVPs: {
     label: "New RSVP responses to my events",
@@ -1369,13 +1389,142 @@ const schema: SchemaType<DbUser> = {
     label: "Someone has mentioned me in a post or a comment",
     ...notificationTypeSettingsField(),
   },
-  notificationDebateCommentsOnSubscribedPost: {
+  notificationDialogueMessages: {
+    label: "New dialogue content in a dialogue I'm participating in",
+    ...notificationTypeSettingsField({ channel: "both"}),
+    hidden: !dialoguesEnabled,
+  },
+  notificationPublishedDialogueMessages: {
     label: "New dialogue content in a dialogue I'm subscribed to",
-    ...notificationTypeSettingsField({ batchingFrequency: 'daily' })
+    ...notificationTypeSettingsField(),
+    hidden: !dialoguesEnabled,
+  },
+  notificationAddedAsCoauthor: {
+    label: "Someone has added me as a coauthor to a post",
+    ...notificationTypeSettingsField({ channel: "both" }),
+  },
+  //TODO: clean up old dialogue implementation notifications
+  notificationDebateCommentsOnSubscribedPost: {
+    label: "[Old Style] New dialogue content in a dialogue I'm subscribed to",
+    ...notificationTypeSettingsField({ batchingFrequency: 'daily' }),
+    hidden: !isLW,
   },
   notificationDebateReplies: {
-    label: "New dialogue content in a dialogue I'm participating in",
-    ...notificationTypeSettingsField()
+    label: "[Old Style] New dialogue content in a dialogue I'm participating in",
+    ...notificationTypeSettingsField(),
+    hidden: !isLW,
+  },
+  notificationDialogueMatch: {
+    label: "Another user and I have matched for a dialogue",
+    ...notificationTypeSettingsField({ channel: "both" }),
+    hidden: !isLW,
+  },
+  notificationNewDialogueChecks: {
+    label: "You have new people interested in dialogue-ing with you",
+    ...notificationTypeSettingsField({ channel: "none" }),
+    hidden: !isLW,
+  },
+  notificationYourTurnMatchForm: {
+    label: "Fill in the topics form for your dialogue match",
+    ...notificationTypeSettingsField(),
+    hidden: !isLW,
+  },
+  hideDialogueFacilitation: {
+    type: Boolean,
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    optional: true,
+    nullable: false,
+    group: formGroups.siteCustomizations,
+    hidden: !isLW,
+    label: "Hide the widget for opting in to being approached about dialogues",
+    ...schemaDefaultValue(false)
+  },
+
+  revealChecksToAdmins: {
+    type: Boolean,
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    optional: true,
+    nullable: false,
+    group: formGroups.siteCustomizations,
+    hidden: !isLW,
+    label: "Allow users to reveal their checks for better facilitation",
+    ...schemaDefaultValue(false)
+  },
+
+  optedInToDialogueFacilitation: {
+    type: Boolean,
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    optional: true,
+    nullable: false,
+    group: formGroups.siteCustomizations,
+    hidden: !isLW,
+    label: "Opted-in to receiving invitations for dialogue facilitation from LessWrong team",
+    ...schemaDefaultValue(false)
+  },
+  showDialoguesList: {
+    type: Boolean,
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    optional: false,
+    nullable: false,
+    group: formGroups.siteCustomizations,
+    hidden: !isLW,
+    label: "Show a list of recently active dialogues inside the frontpage widget",
+    ...schemaDefaultValue(true)
+  },
+  showMyDialogues: {
+    type: Boolean,
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    optional: false,
+    nullable: false,
+    group: formGroups.siteCustomizations,
+    hidden: !isLW,
+    label: "Show a list of dialogues the user participated in inside the frontpage widget",
+    ...schemaDefaultValue(true)
+  },
+  showMatches: {
+    type: Boolean,
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    optional: false,
+    nullable: false,
+    group: formGroups.siteCustomizations,
+    hidden: !isLW,
+    label: "Show a list of dialogue reciprocity matched users inside frontpage widget",
+    ...schemaDefaultValue(true)
+  },
+  showRecommendedPartners: {
+    type: Boolean,
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    optional: false,
+    nullable: false,
+    group: formGroups.siteCustomizations,
+    hidden: !isLW,
+    label: "Show a list of recommended dialogue partners inside frontpage widget",
+    ...schemaDefaultValue(true)
+  },
+  hideActiveDialogueUsers: {
+    type: Boolean,
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    optional: true,
+    group: formGroups.siteCustomizations,
+    hidden: !isLW,
+    label: "Hides/collapses the active dialogue users in the header",
+    ...schemaDefaultValue(false)
   },
 
   // Karma-change notifier settings
@@ -1423,7 +1572,7 @@ const schema: SchemaType<DbUser> = {
     label: "Email me new posts in Curated",
     canCreate: ['members'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
-    hidden: ['AlignmentForum', 'EAForum'].includes(forumTypeSetting.get()),
+    hidden: !isLW,
     canRead: ['members'],
   },
   // Not reusing curated, because we might actually use that as well
@@ -1434,7 +1583,7 @@ const schema: SchemaType<DbUser> = {
     label: "Subscribe to the EA Forum Digest emails",
     canCreate: ['members'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
-    hidden: forumTypeSetting.get() !== 'EAForum',
+    hidden: !isEAForum,
     canRead: ['members'],
     ...schemaDefaultValue(false)
   },
@@ -1459,6 +1608,17 @@ const schema: SchemaType<DbUser> = {
   },
   
   hideMeetupsPoke: {
+    type: Boolean,
+    optional: true,
+    hidden: true,
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    ...schemaDefaultValue(false),
+  },
+  
+  // Used by the EA Forum to allow users to hide the right-hand side of the home page
+  hideHomeRHS: {
     type: Boolean,
     optional: true,
     hidden: true,
@@ -1566,13 +1726,13 @@ const schema: SchemaType<DbUser> = {
     canRead: ['guests'],
     canCreate: ['members'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
-    group: forumTypeSetting.get() === "EAForum" ? formGroups.aboutMe : formGroups.siteCustomizations,
-    order: forumTypeSetting.get() === "EAForum" ? 5 : 101,
+    group: isEAForum ? formGroups.aboutMe : formGroups.siteCustomizations,
+    order: isLWorAF ? 101 : 5, // would use isFriendlyUI but that's not available here
     label: "Public map location",
     control: 'LocationFormComponent',
     blackbox: true,
     optional: true,
-    hidden: forumTypeSetting.get() === "EAForum"
+    hidden: isEAForum
   },
 
   mapLocationSet: {
@@ -1629,7 +1789,7 @@ const schema: SchemaType<DbUser> = {
 
   nearbyEventsNotificationsMongoLocation: {
     type: Object,
-    canRead: [userOwns],
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
     blackbox: true,
     optional: true,
     ...denormalizedField({
@@ -1668,7 +1828,7 @@ const schema: SchemaType<DbUser> = {
     optional: true,
     order: 44,
     group: formGroups.siteCustomizations,
-    hidden: forumTypeSetting.get() !== 'LessWrong',
+    hidden: !isLW,
     label: "Hide the frontpage map"
   },
 
@@ -1705,6 +1865,18 @@ const schema: SchemaType<DbUser> = {
     optional: true,
     order: 47,
     hidden: true,
+    group: formGroups.siteCustomizations,
+    label: "Hide the frontpage book ad"
+  },
+
+  hideFrontpageBook2020Ad: {
+    type: Boolean,
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
+    canCreate: ['members'],
+    canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
+    optional: true,
+    hidden: !isLWorAF,
+    order: 47,
     group: formGroups.siteCustomizations,
     label: "Hide the frontpage book ad"
   },
@@ -1801,8 +1973,8 @@ const schema: SchemaType<DbUser> = {
 
       if (user.deleteContent && user.banned) return 0.0;
       else if (userIsAdmin(user)) return 1.0;
-      else if (isReviewed && karma>=20) return 1.0;
-      else if (isReviewed && karma>=0) return 0.9;
+      else if (isReviewed && karma >=20) return 1.0;
+      else if (isReviewed && karma >=0) return 0.9;
       else if (isReviewed) return 0.8;
       else if (signUpReCaptchaRating !== null && 
               signUpReCaptchaRating !== undefined && 
@@ -1839,8 +2011,9 @@ const schema: SchemaType<DbUser> = {
   afKarma: {
     type: Number,
     optional: true,
+    nullable: false,
     label: "Alignment Base Score",
-    defaultValue: 0,
+    ...schemaDefaultValue(0),
     canRead: ['guests'],
   },
 
@@ -1925,7 +2098,7 @@ const schema: SchemaType<DbUser> = {
     group: formGroups.default,
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment'],
-    hidden: !['LessWrong', 'AlignmentForum'].includes(forumTypeSetting.get()),
+    hidden: !isLWorAF,
     order: 39,
   },
 
@@ -1937,7 +2110,7 @@ const schema: SchemaType<DbUser> = {
       type: "Post",
       nullable: true,
     }),
-    label: isEAForum ? "Quick takes feed ID" : "Shortform feed ID",
+    label: isFriendlyUI ? "Quick takes feed ID" : "Shortform feed ID",
     optional: true,
     canRead: ['guests'],
     canCreate: ['admins', 'sunshineRegiment'],
@@ -1957,7 +2130,7 @@ const schema: SchemaType<DbUser> = {
 
   partiallyReadSequences: {
     type: Array,
-    canRead: [userOwns],
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
     canUpdate: [userOwns],
     optional: true,
     hidden: true,
@@ -2074,7 +2247,7 @@ const schema: SchemaType<DbUser> = {
   noExpandUnreadCommentsReview: {
     type: Boolean,
     optional: true,
-    defaultValue: false,
+    ...schemaDefaultValue(false),
     hidden: true,
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
@@ -2110,7 +2283,7 @@ const schema: SchemaType<DbUser> = {
     resolveAs: {
       arguments: 'limit: Int = 5',
       type: '[Post]',
-      resolver: async (user: DbUser, args: { limit: number }, context: ResolverContext): Promise<Array<DbPost>> => {
+      resolver: async (user: DbUser, args: { limit: number }, context: ResolverContext): Promise<Partial<DbPost>[]> => {
         const { limit } = args;
         const { currentUser, Posts } = context;
         const posts = await Posts.find({ userId: user._id }, { limit }).fetch();
@@ -2158,14 +2331,20 @@ const schema: SchemaType<DbUser> = {
   abTestKey: {
     type: String,
     optional: true,
+    nullable: false,
     canRead: [userOwns, 'sunshineRegiment', 'admins'],
     canUpdate: ['admins'],
     group: formGroups.adminOptions,
+    onCreate: ({ document, context }) => {
+      if (!document.abTestKey) {
+        return getUserABTestKey({clientId: context.clientId ?? randomId()});
+      }
+    }
   },
   abTestOverrides: {
     type: GraphQLJSON, //Record<string,number>
     optional: true, hidden: true,
-    canRead: [userOwns],
+    canRead: [userOwns, 'sunshineRegiment', 'admins'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     blackbox: true,
   },
@@ -2177,7 +2356,7 @@ const schema: SchemaType<DbUser> = {
     tooltip: "Restore the old Draft-JS based editor",
     group: formGroups.siteCustomizations,
     label: "Restore the previous WYSIWYG editor",
-    hidden: forumTypeSetting.get() !== "EAForum",
+    hidden: !isEAForum,
     order: 73,
   },
   walledGardenInvite: {
@@ -2186,6 +2365,7 @@ const schema: SchemaType<DbUser> = {
     canRead: ['guests'],
     canUpdate: ['admins'],
     group: formGroups.adminOptions,
+    hidden: !isLWorAF,
   },
   hideWalledGardenUI: {
     type: Boolean,
@@ -2193,7 +2373,7 @@ const schema: SchemaType<DbUser> = {
     canRead: ['guests'],
     // canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     group: formGroups.siteCustomizations,
-    hidden: forumTypeSetting.get() === "EAForum",
+    hidden: !isLWorAF,
   },
   walledGardenPortalOnboarded: {
     type: Boolean,
@@ -2225,6 +2405,7 @@ const schema: SchemaType<DbUser> = {
     label: "Payment Contact Email",
     tooltip: "An email you'll definitely check where you can receive information about receiving payments",
     group: formGroups.paymentInfo,
+    hidden: !isLWorAF,
   },
   paymentInfo: {
     type: String,
@@ -2234,13 +2415,14 @@ const schema: SchemaType<DbUser> = {
     label: "PayPal Info",
     tooltip: "Your PayPal account info, for sending small payments",
     group: formGroups.paymentInfo,
+    hidden: !isLWorAF,
   },
   
   // Cloudinary image id for the profile image (high resolution)
   profileImageId: {
     hidden: true,
-    order: forumTypeSetting.get() === "EAForum" ? 1 : 40,
-    group: forumTypeSetting.get() === "EAForum" ? formGroups.aboutMe : formGroups.default,
+    order: isLWorAF ? 40 : 1, // would use isFriendlyUI but that's not available here
+    group: isEAForum ? formGroups.aboutMe : formGroups.default,
     type: String,
     optional: true,
     canRead: ['guests'],
@@ -2619,8 +2801,7 @@ const schema: SchemaType<DbUser> = {
   allowDatadogSessionReplay: {
     type: Boolean,
     optional: true,
-    nullable: true,
-    hidden: forumTypeSetting.get() !== 'EAForum',
+    hidden: !isEAForum,
     canRead: ['guests'],
     canUpdate: [userOwns, 'sunshineRegiment', 'admins'],
     canCreate: ['members'],
@@ -2689,7 +2870,8 @@ const schema: SchemaType<DbUser> = {
     canUpdate: ['alignmentForumAdmins', 'admins'],
     canCreate: ['alignmentForumAdmins', 'admins'],
     group: formGroups.adminOptions,
-    label: "AF Review UserId"
+    label: "AF Review UserId",
+    hidden: !isLWorAF,
   },
 
   afApplicationText: {
@@ -2729,7 +2911,30 @@ const schema: SchemaType<DbUser> = {
     canRead: ['guests'],
     hidden: true,
     optional: true
-  }
+  },
+
+  hideSunshineSidebar: {
+    type: Boolean,
+    optional: true,
+    canRead: [userOwns],
+    canUpdate: ['admins'],
+    canCreate: ['admins'],
+    group: formGroups.adminOptions,
+    label: "Hide Sunshine Sidebar",
+    hidden: isEAForum,
+    ...schemaDefaultValue(false),
+  },
+
+  // EA Forum wrapped fields
+  wrapped2023Viewed: {
+    type: Boolean,
+    optional: false,
+    canRead: [userOwns, 'admins'],
+    canUpdate: [userOwns, 'admins'],
+    canCreate: ['members'],
+    hidden: true,
+    ...schemaDefaultValue(false),
+  },
 };
 
 export default schema;

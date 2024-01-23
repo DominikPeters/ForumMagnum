@@ -6,6 +6,7 @@ registerFragment(`
     title
     canonicalCollectionSlug
     canonicalCollection {
+      _id
       title
     }
   }
@@ -29,9 +30,12 @@ registerFragment(`
     isDeleted
     hidden
     hideFromAuthorPage
+    noindex
     curatedOrder
     userProfileOrder
     af
+    postsCount
+    readPostsCount
   }
 `);
 

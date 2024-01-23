@@ -54,13 +54,30 @@ yarn install
 
 CEA Devs, see the ForumCredentials repository for access to a remote dev database. Otherwise, do the following:
 
-Prerequisites:
-- Install MongoDB: https://docs.mongodb.com/manual/installation/
+Run a local postgres instance, version 15. For example, if you're on macos:
 
+```bash
+brew install postgresql@15
+brew services start postgresql@15
+
+createdb forummagnum
 ```
-mkdir myLocalDatabase
-mongod --dbpath ./myLocalDatabase
+
+(DB name is an arbitrary choice.)
+
+You must also have the [pgvector](https://github.com/pgvector/pgvector) Postgres extension installed.
+
+Configure the schema:
+
+```bash
+psql forummagnum -f ./schema/accepted_schema.sql
 ```
+
+TODOs:
+
+* You won't have any database settings yet. TODO: add instructions.
+* You won't be able to run migrations yet. TODO: fix migrations so they can be
+  run on a new db (NB: goal is still to have the db have the accepted_schema).
 
 ### Creating branch-specific development databases
 
@@ -76,9 +93,23 @@ commands are supported:
 
 ### Start the development server
 
+Your postgres URL for the locally-running database will be
+postgres://localhost/forummagnum.
+
 ```
-yarn start-local-db
+yarn start-local-db --postgresUrl $YOUR_LOCAL_POSTGRES_URL
 ```
+
+Next, select which website you are working on. If you're making a new site, open
+packages/lesswrong/lib/instanceSettings.ts, find the line that says
+
+```
+export const allForumTypes = ...
+```
+
+and add your forum type to the end. Then regardless of whether you're making a
+new site or editing an existing one, open settings-dev.json and change the line
+that says `"forumType": "LessWrong"` to the correct forum.
 
 Or, if (and only if!) you have access to CEA's ForumCredentials repository, use
 
@@ -101,7 +132,6 @@ Some relevant pieces of documentation that will help you understand aspects of t
 3. GraphQL: [tutorial](https://graphql.org/learn/)
 4. Apollo: [introduction](https://www.apollographql.com/docs/react/) and [hooks API reference](https://www.apollographql.com/docs/react/api/react/hooks/)
 5. Lodash: [reference](https://lodash.com/docs/4.17.15)
-6. MongoDB: [manual](https://docs.mongodb.com/manual/introduction/)
 
 You can also see auto-generated documentation of our GraphQL API endpoints and try out queries using [GraphiQL](https://www.lesswrong.com/graphiql) on our server or on a development server.
 
@@ -184,7 +214,7 @@ run multiple times should instead be implemented as a server script.
 * View pending migrations with `yarn migrate pending [dev|staging|prod]`
 * View executed migrations with `yarn migrate executed [dev|staging|prod]`
 
-Instead of using \[dev|staging|prod\] above, you can also manually pass in a postgres connection string through a `PG_URL` environement variable. Use that option if you are not using the \[EA\] ForumCredentials repo.
+Instead of using \[dev|staging|prod\] above, you can also manually pass in a postgres connection string through a `PG_URL` environment variable. Use that option if you are not using the \[EA\] ForumCredentials repo.
 
 ### Schema changing migrations
 
@@ -207,12 +237,6 @@ For these the development process will be like this:
   * run `yarn acceptmigrations`
   * finish merge/rebase
 
-### Migrating both Mongo and Postgres
-* Currently, you need to create a migration for both Mongo and Postgres separately. 
-* You do the Postgres migration via the `yarn makemigrations` process described above.
-* You make Mongo migration by imitating the previous examples in `packages/lesswrong/server/manualMigrations`
-* See https://github.com/ForumMagnum/ForumMagnum/pull/6458 for an example of a migration that does both.
-
 ## Testing
 
 We use [Jest](https://jestjs.io/) for unit and integration testing, and [Cypress](https://www.cypress.io/) for end-to-end testing.
@@ -220,7 +244,7 @@ We use [Jest](https://jestjs.io/) for unit and integration testing, and [Cypress
 ### Jest
 
 * Run the unit test suite with `yarn unit`
-* Run the integration test suite with `yarn integration`
+* Run the integration test suite with `yarn integration` (you may need to run `yarn create-integration-db` first so that the db is up-to-date)
 
 Both commands support a `-watch` suffix to watch the file system, and a `-coverage` suffix to generate a code coverage report. After generating both code coverage reports they can be combined into a single report with `yarn combine-coverage`.
 
@@ -242,7 +266,7 @@ merged into `ea-deploy` and `lw-deploy`.
 
 ### \[CEA-Specific] Local Dev Database
 
-The local development database is actually hosted on MongoDB cloud like staging
+The local development database is actually hosted in the cloud like staging
 and production. There's no reason to host your own database. It's also shared
 with other developers, which means if someone adds a feature which requires
 manual database work, there's no need for you to also do that manual work.

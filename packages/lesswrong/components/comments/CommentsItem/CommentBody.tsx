@@ -6,6 +6,8 @@ import { useCurrentUser } from '../../common/withUser'
 import { nofollowKarmaThreshold } from '../../../lib/publicSettings';
 import type { ContentStyleType } from '../../common/ContentStyles';
 import { VotingProps } from '../../votes/votingProps';
+import type { ContentItemBody, ContentReplacedSubstringComponent } from '../../common/ContentItemBody';
+import { getVotingSystemByName } from '../../../lib/voting/votingSystems';
 
 const styles = (theme: ThemeType): JssStyles => ({
   commentStyling: {
@@ -35,21 +37,30 @@ const styles = (theme: ThemeType): JssStyles => ({
   },
 })
 
-const CommentBody = ({ comment, classes, collapsed, truncated, postPage, commentBodyHighlights, commentItemRef, voteProps }: {
+const CommentBody = ({
+  comment,
+  commentBodyRef,
+  collapsed,
+  truncated,
+  postPage,
+  voteProps,
+  className,
+  classes,
+}: {
   comment: CommentsList,
+  commentBodyRef?: React.RefObject<ContentItemBody>|null,
   collapsed?: boolean,
   truncated?: boolean,
   postPage?: boolean,
-  classes: ClassesType,
-  commentBodyHighlights?: string[],
-  commentItemRef?: React.RefObject<HTMLDivElement>|null,
   voteProps?: VotingProps<VoteableTypeClient>
+  className?: string,
+  classes: ClassesType,
 }) => {
   const currentUser = useCurrentUser();
   const { ContentItemBody, CommentDeletedMetadata, ContentStyles, InlineReactSelectionWrapper } = Components
   const { html = "" } = comment.contents || {}
 
-  const bodyClasses = classNames(
+  const bodyClasses = classNames(className,
     { [classes.commentStyling]: !comment.answer,
       [classes.answerStyling]: comment.answer,
       [classes.retracted]: comment.retracted }
@@ -68,21 +79,28 @@ const CommentBody = ({ comment, classes, collapsed, truncated, postPage, comment
   } else {
     contentType = 'comment';
   }
+  
+  const votingSystem = getVotingSystemByName(comment.votingSystem);
+  let highlights: Record<string,ContentReplacedSubstringComponent>|undefined = undefined;
+  if (voteProps && votingSystem.getCommentHighlights) {
+    highlights = votingSystem.getCommentHighlights({comment, voteProps});
+  }
 
   const contentBody = <ContentStyles contentType={contentType} className={classes.root}>
     <ContentItemBody
-      highlightedSubstrings={commentBodyHighlights}
+      ref={commentBodyRef ?? undefined}
       className={bodyClasses}
       dangerouslySetInnerHTML={{__html: innerHtml }}
       description={`comment ${comment._id}`}
       nofollow={(comment.user?.karma || 0) < nofollowKarmaThreshold.get()}
+      replacedSubstrings={highlights}
     />
   </ContentStyles>
 
-  if (comment.votingSystem === "namesAttachedReactions" && voteProps) {
-    return <InlineReactSelectionWrapper commentItemRef={commentItemRef} voteProps={voteProps}>
-        {contentBody}
-      </InlineReactSelectionWrapper>
+  if (votingSystem.name === "namesAttachedReactions" && voteProps) {
+    return <InlineReactSelectionWrapper commentBodyRef={commentBodyRef} voteProps={voteProps} styling="comment" >
+      {contentBody}
+    </InlineReactSelectionWrapper>
   } else {
     return contentBody
   }

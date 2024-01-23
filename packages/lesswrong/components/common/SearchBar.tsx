@@ -3,15 +3,17 @@ import { registerComponent, Components } from '../../lib/vulcan-lib';
 import { useOnNavigate } from '../hooks/useOnNavigate';
 import { InstantSearch, SearchBox, connectMenu } from 'react-instantsearch-dom';
 import classNames from 'classnames';
-import SearchIcon from '@material-ui/icons/Search';
 import CloseIcon from '@material-ui/icons/Close';
 import Portal from '@material-ui/core/Portal';
-import { useNavigation } from '../../lib/routeUtil';
+import IconButton from '@material-ui/core/IconButton';
 import withErrorBoundary from '../common/withErrorBoundary';
-import { getAlgoliaIndexName, isAlgoliaEnabled, getSearchClient } from '../../lib/search/algoliaUtil';
-import { forumTypeSetting } from '../../lib/instanceSettings';
+import { getSearchIndexName, getSearchClient, isSearchEnabled } from '../../lib/search/searchUtil';
+import { isAF } from '../../lib/instanceSettings';
 import qs from 'qs'
 import { useSearchAnalytics } from '../search/useSearchAnalytics';
+import { useCurrentUser } from './withUser';
+import { isFriendlyUI } from '../../themes/forumTheme';
+import { useNavigate } from '../../lib/reactRouterWrapper';
 
 const VirtualMenu = connectMenu(() => null);
 
@@ -52,6 +54,7 @@ const styles = (theme: ThemeType): JssStyles => ({
 
       height: "100%",
       width: "100%",
+      paddingTop: isFriendlyUI ? 5 : undefined,
       paddingRight: 0,
       paddingLeft: 48,
       verticalAlign: "bottom",
@@ -61,31 +64,32 @@ const styles = (theme: ThemeType): JssStyles => ({
       fontSize: 'inherit',
       "-webkit-appearance": "none",
       cursor: "text",
-      borderRadius:5,
-
-      [theme.breakpoints.down('tiny')]: {
-        backgroundColor: theme.palette.grey[200],
-        zIndex: theme.zIndexes.searchBar,
-        width:110,
-        height:36,
-        paddingLeft:10
-      },
+      borderRadius: 5,
     },
     "&.open .ais-SearchBox-input": {
       display:"inline-block",
     },
+    "&.open .SearchBar-searchIcon": {
+      position: 'fixed',
+    },
   },
+  searchInputAreaSmall: isFriendlyUI ? {
+    minWidth: 34,
+  } : {},
   searchIcon: {
-    position: 'fixed',
-    margin: '12px',
+    color: isFriendlyUI ? undefined : theme.palette.header.text,
   },
+  searchIconSmall: isFriendlyUI ? {
+    padding: 6,
+    marginTop: 6,
+  } : {},
   closeSearchIcon: {
     fontSize: 14,
   },
   searchBarClose: {
     display: "inline-block",
     position: "absolute",
-    top: 15,
+    top: isFriendlyUI ? 18 : 15,
     right: 5,
     cursor: "pointer"
   },
@@ -96,7 +100,7 @@ const styles = (theme: ThemeType): JssStyles => ({
     "& .ais-SearchBox-input::placeholder": {
       color: theme.palette.text.invertedBackgroundText3,
     },
-  },  
+  },
 })
 
 const SearchBar = ({onSetIsActive, searchResultsArea, classes}: {
@@ -104,14 +108,15 @@ const SearchBar = ({onSetIsActive, searchResultsArea, classes}: {
   searchResultsArea: any,
   classes: ClassesType
 }) => {
+  const currentUser = useCurrentUser()
   const [inputOpen,setInputOpen] = useState(false);
   const [searchOpen,setSearchOpen] = useState(false);
   const [currentQuery,setCurrentQuery] = useState("");
-  const { history } = useNavigation();
+  const navigate = useNavigate();
   const captureSearch = useSearchAnalytics();
 
   const handleSubmit = () => {
-    history.push({pathname: `/search`, search: `?${qs.stringify({query: currentQuery})}`});
+    navigate({pathname: `/search`, search: `?${qs.stringify({query: currentQuery})}`});
     closeSearch()
   }
   
@@ -159,28 +164,29 @@ const SearchBar = ({onSetIsActive, searchResultsArea, classes}: {
     }
   }, [currentQuery, captureSearch])
 
-  const alignmentForum = forumTypeSetting.get() === 'AlignmentForum';
-  const { SearchBarResults } = Components
+  const { SearchBarResults, ForumIcon } = Components
 
-  if(!isAlgoliaEnabled()) {
-    return <div>Search is disabled (Algolia App ID not configured on server)</div>
+  if (!isSearchEnabled()) {
+    return <div>Search is disabled (ElasticSearch not configured on server)</div>
   }
 
   return <div className={classes.root} onKeyDown={handleKeyDown}>
     <div className={classes.rootChild}>
       <InstantSearch
-        indexName={getAlgoliaIndexName("Posts")}
+        indexName={getSearchIndexName("Posts")}
         searchClient={getSearchClient()}
         onSearchStateChange={queryStateControl}
       >
         <div className={classNames(
           classes.searchInputArea,
           {"open": inputOpen},
-          {[classes.alignmentForum]: alignmentForum}
+          {[classes.alignmentForum]: isAF, [classes.searchInputAreaSmall]: !currentUser}
         )}>
-          {alignmentForum && <VirtualMenu attribute="af" defaultRefinement="true" />}
+          {isAF && <VirtualMenu attribute="af" defaultRefinement="true" />}
           <div onClick={handleSearchTap}>
-            <SearchIcon className={classes.searchIcon}/>
+            <IconButton className={classNames(classes.searchIcon, {[classes.searchIconSmall]: !currentUser})}>
+              <ForumIcon icon="Search" />
+            </IconButton>
             {/* Ignored because SearchBox is incorrectly annotated as not taking null for its reset prop, when
               * null is the only option that actually suppresses the extra X button.
              // @ts-ignore */}

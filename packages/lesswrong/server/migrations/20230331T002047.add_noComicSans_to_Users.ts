@@ -34,16 +34,13 @@
 export const acceptsSchemaHash = "222d42945763fb6dcaff3b497911d7b7";
 
 import Users from "../../lib/collections/users/collection"
+import { BoolType } from "../../lib/sql/Type";
 import { addRemovedField, dropRemovedField } from "./meta/utils"
 
 export const up = async ({db}: MigrationContext) => {
-  if (!Users.isPostgres()) return
-  
-  await addRemovedField(db, Users, "noComicSans")
+  await addRemovedField(db, Users, "noComicSans", new BoolType())
 }
 
 export const down = async ({db}: MigrationContext) => {
-  if (!Users.isPostgres()) return
-  
   await dropRemovedField(db, Users, "noComicSans")
 }

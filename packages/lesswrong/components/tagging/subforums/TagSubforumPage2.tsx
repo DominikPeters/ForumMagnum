@@ -3,8 +3,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AnalyticsContext } from "../../../lib/analyticsEvents";
 import { tagGetUrl } from '../../../lib/collections/tags/helpers';
 import { useMulti } from '../../../lib/crud/withMulti';
-import { Link } from '../../../lib/reactRouterWrapper';
-import { useLocation, useNavigation } from '../../../lib/routeUtil';
+import { Link, useNavigate } from '../../../lib/reactRouterWrapper';
+import { useLocation } from '../../../lib/routeUtil';
 import { Components, registerComponent } from '../../../lib/vulcan-lib';
 import { useCurrentUser } from '../../common/withUser';
 import { MAX_COLUMN_WIDTH } from '../../posts/PostsPage/PostsPage';
@@ -15,6 +15,7 @@ import qs from "qs";
 import { subscriptionTypes } from '../../../lib/collections/subscriptions/schema';
 import { useSubscribeUserToTag } from '../../../lib/filterSettings';
 import { defaultPostsLayout, isPostsLayout } from '../../../lib/collections/posts/dropdownOptions';
+import { getTagStructuredData } from '../TagPageRouter';
 
 export const styles = (theme: ThemeType): JssStyles => ({
   tabRow: {
@@ -128,15 +129,15 @@ const TagSubforumPage2 = ({classes}: {
 
   const currentUser = useCurrentUser();
   const { query, params: { slug } } = useLocation();
-  const { history } = useNavigation();
+  const navigate = useNavigate();
 
   const isTab = (tab: string): tab is SubforumTab => (subforumTabs as readonly string[]).includes(tab)
   const tab = isTab(query.tab) ? query.tab : defaultTab
   
   const handleChangeTab = useCallback((_, value: SubforumTab) => {
     const newQuery = {...query, tab: value}
-    history.push({...location, search: `?${qs.stringify(newQuery)}`})
-  }, [history, query])
+    navigate({...location, search: `?${qs.stringify(newQuery)}`})
+  }, [navigate, query])
 
   // "subforum" tab is now called "posts", so redirect to the new tab name
   useEffect(() => {
@@ -340,7 +341,7 @@ const TagSubforumPage2 = ({classes}: {
       tagId={tag._id}
       sortedBy={query.sortedBy || "relevance"}
     >
-      <HeadTags description={headTagDescription} noIndex={tag.noindex} />
+      <HeadTags description={headTagDescription} structuredData={getTagStructuredData(tag)} noIndex={tag.noindex} />
       {hoveredContributorId && <style>{`.by_${hoveredContributorId} {background: rgba(95, 155, 101, 0.35);}`}</style>}
       <SubforumLayout
         titleComponent={titleComponent}

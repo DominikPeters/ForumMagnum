@@ -20,6 +20,8 @@ registerFragment(`
     coauthorStatuses
     hasCoauthorPermission
     rejected
+    debate
+    collabEditorDialogue
   }
 `);
 
@@ -38,6 +40,7 @@ registerFragment(`
     frontpageDate
     meta
     deletedDraft
+    postCategory
 
     shareWithUsers
     sharingSettings
@@ -46,6 +49,7 @@ registerFragment(`
     voteCount
     baseScore
     extendedScore
+    emojiReactors
     unlisted
     score
     lastVisitedAt
@@ -111,6 +115,7 @@ registerFragment(`
     submitToFrontpage
     shortform
     onlyVisibleToLoggedIn
+    onlyVisibleToEstablishedAccounts
 
     reviewCount
     reviewVoteCount
@@ -123,6 +128,7 @@ registerFragment(`
     }
 
     podcastEpisodeId
+    forceAllowType3Audio
 
     # deprecated
     nominationCount2019
@@ -206,6 +212,7 @@ registerFragment(`
       html
     }
     lastPromotedComment {
+      _id
       user {
         ...UsersMinimumInfo
       }
@@ -216,7 +223,13 @@ registerFragment(`
     tags {
       ...TagPreviewFragment
     }
+    socialPreviewData {
+      _id
+      imageUrl
+    }
 
+    feedId
+    totalDialogueResponseCount
     unreadDebateResponseCount
     dialogTooltipPreview
   }
@@ -262,7 +275,11 @@ registerFragment(`
     canonicalSource
     noIndex
     viewCount
-    socialPreviewImageUrl
+    socialPreviewData {
+      _id
+      text
+      imageUrl
+    }
     
     # Tags
     tagRelevance
@@ -294,6 +311,7 @@ registerFragment(`
     podcastEpisode {
       title
       podcast {
+        _id
         title
         applePodcastLink
         spotifyPodcastLink
@@ -401,9 +419,11 @@ registerFragment(`
   fragment PostsWithNavigationAndRevision on Post {
     ...PostsRevision
     ...PostSequenceNavigation
+    customHighlight {
+      ...RevisionDisplay
+    }
     
     tableOfContentsRevision(version: $version)
-    commentEmojiReactors
   }
 `)
 
@@ -455,9 +475,11 @@ registerFragment(`
     contents {
       ...RevisionDisplay
     }
+    customHighlight {
+      ...RevisionDisplay
+    }
     myEditorAccess
     linkSharingKey
-    commentEmojiReactors
   }
 `)
 
@@ -471,6 +493,7 @@ registerFragment(`
     readTimeMinutesOverride
     fmCrosspost
     hideFromRecentDiscussions
+    hideFromPopularComments
     moderationGuidelines {
       ...RevisionEdit
     }
@@ -481,7 +504,22 @@ registerFragment(`
     subforumTagId
     sideComments
     socialPreviewImageId
+    socialPreview
+    socialPreviewData {
+      _id
+      imageId
+      text
+    }
     criticismTipsDismissed
+    user {
+      ...UsersMinimumInfo
+    }
+    usersSharedWith {
+      ...UsersMinimumInfo
+    }
+    coauthors {
+      ...UsersMinimumInfo
+    }
   }
 `);
 
@@ -516,6 +554,15 @@ registerFragment(`
     ...PostsList
     recentComments(commentsLimit: $commentsLimit, maxAgeHours: $maxAgeHours, af: $af) {
       ...CommentsList
+    }
+  }
+`);
+
+registerFragment(`
+  fragment ShortformRecentDiscussion on Post {
+    ...PostsList
+    recentComments(commentsLimit: $commentsLimit, maxAgeHours: $maxAgeHours, af: $af) {
+      ...CommentsListWithTopLevelComment
     }
   }
 `);
@@ -600,6 +647,13 @@ registerFragment(`
 `);
 
 registerFragment(`
+  fragment PostWithDialogueMessage on Post {
+    _id
+    dialogueMessageContents(dialogueMessageId: $dialogueMessageId)
+  }
+`);
+
+registerFragment(`
   fragment PostSideComments on Post {
     _id
     sideComments
@@ -617,5 +671,28 @@ registerFragment(`
   fragment PostsEditCriticismTips on Post {
     _id
     criticismTipsDismissed
+  }
+`);
+
+registerFragment(`
+  fragment PostsBestOfList on Post {
+    ...PostsListWithVotes
+    podcastEpisode {
+      _id
+      title
+      podcast {
+        _id
+        title
+        applePodcastLink
+        spotifyPodcastLink
+      }
+      episodeLink
+      externalEpisodeId
+    }
+    socialPreviewData {
+      _id
+      text
+      imageUrl
+    }
   }
 `);

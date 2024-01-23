@@ -8,7 +8,7 @@ import { ForumTypeString } from "../instanceSettings";
 const forceNonResolverFields = ["contents", "moderationGuidelines", "customHighlight", "originalContents", "description", "subforumWelcomeText", "howOthersCanHelpMe", "howICanHelpOthers", "biography"];
 
 export const isResolverOnly =
-  <T extends DbObject>(fieldName: string, schema: CollectionFieldSpecification<T>) =>
+  <N extends CollectionNameString>(fieldName: string, schema: CollectionFieldSpecification<N>) =>
     schema.resolveAs && !schema.resolveAs.addOriginalField && forceNonResolverFields.indexOf(fieldName) < 0;
 
 /**
@@ -47,10 +47,10 @@ export abstract class Type {
     return null;
   }
 
-  static fromSchema<T extends DbObject>(
+  static fromSchema<N extends CollectionNameString>(
     fieldName: string,
-    schema: CollectionFieldSpecification<T>,
-    indexSchema: CollectionFieldSpecification<T> | undefined,
+    schema: CollectionFieldSpecification<N>,
+    indexSchema: CollectionFieldSpecification<N> | undefined,
     forumType: ForumTypeString,
   ): Type {
     if (isResolverOnly(fieldName, schema)) {
@@ -90,6 +90,12 @@ export abstract class Type {
       case Array:
         if (!indexSchema) {
           throw new Error("No schema type provided for array member");
+        }
+        if (schema.vectorSize) {
+          if (indexSchema.type !== Number) {
+            throw new Error("Vector items must be of type `Number`");
+          }
+          return new VectorType(schema.vectorSize);
         }
         return new ArrayType(Type.fromSchema(fieldName + ".$", indexSchema, undefined, forumType));
     }
@@ -164,6 +170,16 @@ export class ArrayType extends Type {
 
   isArray() {
     return true;
+  }
+}
+
+export class VectorType extends Type {
+  constructor(private size: number) {
+    super();
+  }
+
+  toString() {
+    return `VECTOR(${this.size})`;
   }
 }
 
@@ -255,6 +271,10 @@ export class DefaultValueType extends Type {
     return `${this.type.toString()} DEFAULT ${this.getDefaultValueString()}`;
   }
 
+  getDefaultValue(): AnyBecauseHard {
+    return this.value
+  }
+
   getDefaultValueString(): string | null {
     return valueToString(this.value, this.type.isArray() ? this.type.subtype : undefined);
   }
@@ -265,6 +285,10 @@ export class DefaultValueType extends Type {
 
   isArray(): this is ArrayType {
     return this.type.isArray();
+  }
+
+  isNotNull(): boolean {
+    return this.type instanceof NotNullType;
   }
 }
 
