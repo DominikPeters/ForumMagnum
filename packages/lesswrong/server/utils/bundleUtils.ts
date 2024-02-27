@@ -2,9 +2,9 @@ import fs from 'fs';
 import crypto from 'crypto';
 import path from 'path'
 
-const loadClientBundle = () => {
+const loadBundle = (relativePath: string) => {
   // This path join is relative to "build/server/serverBundle.js", NOT to this file
-  const bundlePath = path.join(__dirname, "../../client/js/bundle.js");
+  const bundlePath = path.join(__dirname, relativePath);
   const bundleBrotliPath = `${bundlePath}.br`;
 
   const lastModified = fs.statSync(bundlePath).mtimeMs;
@@ -24,6 +24,10 @@ const loadClientBundle = () => {
     bundleBuffer,
     bundleBrotliBuffer,
   };
+}
+
+const loadClientBundle = () => {
+  return loadBundle("../../client/js/bundle.js");
 }
 
 let clientBundle: {bundlePath: string, bundleHash: string, lastModified: number, bundleBuffer: Buffer, bundleBrotliBuffer: Buffer|null}|null = null;

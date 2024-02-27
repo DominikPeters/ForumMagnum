@@ -211,6 +211,7 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
     reviewDownvote: "rgba(125,70,70, .87)",
     reviewBallotIcon: 'rgb(47 108 152 / 50%)',
     
+
     aprilFools: {
       orange: "#e64a19",
       yellow: "#f57f17",
@@ -225,6 +226,7 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
       [5]: '#a56eff',
       [6]: '#6C7BFF',
     },
+
   },
   link: {
     unmarked: shades.greyAlpha(.87),
@@ -271,6 +273,7 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
     yellow: '#ffc500',
     recentDiscussionGreen: "#72B065",
     recentDiscussionGrey: "#757575",
+    headerKarma: "#ffad08",
     activeDotOrange: "#fdbd48",
 
     commentsBubble: {
@@ -292,6 +295,7 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
     grey200: `1px solid ${shades.grey[200]}`,
     grey300: `1px solid ${shades.grey[300]}`,
     grey400: `1px solid ${shades.grey[400]}`,
+    grey800: `1px solid ${shades.grey[800]}`,
     maxIntensity: shades.greyBorder("1px", 1.0),
     tableHeadingDivider: shades.greyBorder("2px", 1.0),
     table: `1px double ${shades.grey[410]}`,
@@ -311,6 +315,7 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
     dashed500: `dashed 1px ${shades.grey[500]}`,
     mentionsBaloon: "#c4c4c4",
     wrappedSummary: "2px solid rgba(255, 168, 50, 0.6)",
+    eaButtonGreyOutline: "#BCC1C9",
   },
   background: {
     default: shades.grey[60],
@@ -318,6 +323,7 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
     contrastInDarkMode: shades.grey[0],
     pageActiveAreaBackground: shades.grey[0],
     translucentBackground: "rgba(255,255,255,.5)",
+    loginBackdrop: "rgba(217,217,217,0.5)",
     diffInserted: "#d4ead4",
     diffDeleted: "#f0d3d3",
     usersListItem: shades.greyAlpha(.05),
@@ -330,6 +336,7 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
     // https://stackoverflow.com/questions/70446857/safari-linear-gradient
     transparent: shades.inverseGreyAlpha(0),
     imageOverlay: 'rgba(0,0,0,0.4)',
+    digestAdBannerInput: shades.grey[0],
   },
   panelBackground: {
     default: shades.grey[0],
@@ -368,6 +375,9 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
     recentDiscussionThread: shades.grey[20],
     tooltipBackground: "rgba(75,75,75,.94)",
     tooltipBackground2: "#373737",
+    modalBackground: "#fff",
+    loginInput: "#efefef",
+    loginInputHovered: "#e4e4e4",
     tenPercent: shades.greyAlpha(.1),
     sunshineReportedContent: "rgba(60,0,0,.08)",
     sunshineFlaggedUser: "rgba(150,0,0,.05)",
@@ -390,6 +400,8 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
       rgba(255,255,255,0.25) 50%,
       rgba(0,0,0,0) 66%
     ) ${shades.grey[500]}`,
+    onboardingSection: "#f5f5f5",
+    onboardingPodcast: "#e7e7e7",
   },
   boxShadow: {
     default: `0 1px 5px ${shades.boxShadowColor(.025)}`,
@@ -452,6 +464,10 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
       selected: "#198cf0",
       selectedHover: "#0e7fe1",
     },
+    digestAdBannerNoThanks: {
+      background: shades.grey[700],
+      hoverBackground: shades.grey[800],
+    },
   },
   tag: {
     text: shades.greyAlpha(.9),
@@ -464,6 +480,9 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
     hollowTagBorder: shades.greyBorder("1px", .15),
     boxShadow: `1px 2px 5px ${shades.boxShadowColor(.2)}`,
     addTagButtonBackground: shades.grey[300],
+    onboardingBackground: "rgba(0, 0, 0, 0.4)",
+    onboardingBackgroundHover: "rgba(0, 0, 0, 0.2)",
+    onboardingBackgroundSelected: "rgba(0, 0, 0, 0.5)",
   },
   geosuggest: {
     dropdownText: "#000",
@@ -477,6 +496,7 @@ export const defaultComponentPalette = (shades: ThemeShadePalette): ThemeCompone
     activeProgress: 'rgba(127, 175, 131, 0.5)',
     progressBar: 'rgba(127, 175, 131, 0.7)',
     adminButton: "rgba(200,150,100)",
+    winner: "rgba(179, 136, 79, 1)",
   },
   header: {
     text: shades.greyAlpha(.87),

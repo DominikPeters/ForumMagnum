@@ -132,6 +132,13 @@ export function startWebserver() {
   app.use('/analyticsEvent', express.json({ limit: '50mb' }));
   app.use('/ckeditor-webhook', express.json({ limit: '50mb' }));
 
+  if (isElasticEnabled) {
+    // We register this here (before the auth middleware) to avoid blocking
+    // search requests whilst waiting to fetch the current user from Postgres,
+    // which is never actually used.
+    ElasticController.addRoutes(app);
+  }
+
   addStripeMiddleware(addMiddleware);
   // Most middleware need to run after those added by addAuthMiddlewares, so that they can access the user that passport puts on the request.  Be careful if moving it!
   addAuthMiddlewares(addMiddleware);
@@ -181,7 +188,10 @@ export function startWebserver() {
 
   addStaticRoute("/js/bundle.js", ({query}, req, res, context) => {
     const {bundleHash, bundleBuffer, bundleBrotliBuffer} = getClientBundle();
-    let headers: Record<string,string> = {}
+    let headers: Record<string,string> = {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Service-Worker-Allowed": "/",
+    }
     const acceptBrotli = req.headers['accept-encoding'] && req.headers['accept-encoding'].includes('br')
 
     if ((query.hash && query.hash !== bundleHash) || (acceptBrotli && bundleBrotliBuffer === null)) {
@@ -195,15 +205,9 @@ export function startWebserver() {
       // that either means we are running locally (in which case chache control isn't important), or that
       // the brotli bundle is currently being built (in which case set a short cache TTL to prevent the CDN
       // from serving the uncompressed bundle for too long).
-      headers = {
-        "Cache-Control": "public, max-age=60",
-        "Content-Type": "text/javascript; charset=utf-8"
-      }
+      headers["Cache-Control"] = "public, max-age=60";
     } else {
-      headers = {
-        "Cache-Control": "public, max-age=604800, immutable",
-        "Content-Type": "text/javascript; charset=utf-8"
-      }
+      headers["Cache-Control"] = "public, max-age=604800, immutable";
     }
 
     if (bundleBrotliBuffer !== null && acceptBrotli) {
@@ -215,12 +219,20 @@ export function startWebserver() {
       res.end(bundleBuffer);
     }
   });
+
   // Setup CKEditor Token
   app.use("/ckeditor-token", ckEditorTokenHandler)
   
   // Static files folder
   app.use(express.static(path.join(__dirname, '../../client')))
-  app.use(express.static(path.join(__dirname, '../../../public')))
+  app.use(express.static(path.join(__dirname, '../../../public'), {
+    setHeaders: (res, requestPath) => {
+      const relativePath = path.relative(__dirname, requestPath);
+      if (relativePath.startsWith("../../../public/reactionImages")) {
+        res.set("Cache-Control", "public, max-age=604800, immutable");
+      }
+    }
+  }))
   
   // Voyager is a GraphQL schema visual explorer
   app.use("/graphql-voyager", voyagerMiddleware({
@@ -255,10 +267,6 @@ export function startWebserver() {
 
   addCrosspostRoutes(app);
   addCypressRoutes(app);
-
-  if (isElasticEnabled) {
-    ElasticController.addRoutes(app);
-  }
 
   if (testServerSetting.get()) {
     app.post('/api/quit', (_req, res) => {

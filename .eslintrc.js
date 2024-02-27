@@ -66,6 +66,7 @@ module.exports = {
     "react/no-unescaped-entities": 0,
     "react/display-name": 0,
     "react/jsx-no-comment-textnodes": 1,
+    "react/no-unknown-property": ["error", {ignore: ["test-id"]}],
 
     // Differs from no-mixed-operators default only in that "??" is added to the first group
     "no-mixed-operators": ["warn", {
@@ -242,6 +243,7 @@ module.exports = {
     // used, if the usage is as a type rather than as a value.)
     "no-unused-vars": 0,
     "@typescript-eslint/no-unused-vars": 0,
+    "@typescript-eslint/type-annotation-spacing": 1
   },
   "env": {
     "browser": true,

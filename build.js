@@ -13,6 +13,7 @@ process.on("SIGQUIT", () => process.exit(0));
 
 const [opts, args] = cliopts.parse(
   ["production", "Run in production mode"],
+  ["cypress", "Run in end-to-end testing mode"],
   ["settings", "A JSON config file for the server", "<file>"],
   ["db", "A path to a database connection config file", "<file>"],
   ["postgresUrl", "A postgresql connection connection string", "<url>"],
@@ -43,6 +44,7 @@ setOutputDir(`./build${serverPort === defaultServerPort ? "" : serverPort}`);
 //  * Provide a websocket server for signaling autorefresh
 
 const isProduction = !!opts.production;
+const isCypress = !!opts.cypress;
 const settingsFile = opts.settings || "settings.json"
 
 const databaseConfig = getDatabaseConfig(opts);
@@ -58,8 +60,8 @@ if (isProduction) {
   process.env.NODE_ENV="development";
 }
 
-const clientBundleBanner = `/*
- * LessWrong 2.0 (client JS bundle)
+const clientBundleBanner = (description) => `/*
+ * LessWrong 2.0 (${description})
  * Copyright (c) 2022 the LessWrong development team. See https://github.com/ForumMagnum/ForumMagnum
  * for source and license details.
  *
@@ -72,6 +74,7 @@ const bundleDefinitions = {
   "process.env.NODE_ENV": isProduction ? "\"production\"" : "\"development\"",
   "bundleIsProduction": isProduction,
   "bundleIsTest": false,
+  "bundleIsCypress": isCypress,
   "bundleIsMigrations": false,
   "defaultSiteAbsoluteUrl": `\"${process.env.ROOT_URL || ""}\"`,
   "buildId": `"${latestCompletedBuildId}"`,
@@ -82,6 +85,12 @@ const bundleDefinitions = {
 const clientBundleDefinitions = {
   "bundleIsServer": false,
   "global": "window",
+}
+
+const serviceWorkerDefinitions = {
+  "bundleIsServer": false,
+  "global": "globalThis",
+  "window": "globalThis",
 }
 
 const serverBundleDefinitions = {
@@ -95,11 +104,12 @@ build({
   bundle: true,
   target: "es6",
   sourcemap: true,
+  metafile: true,
   sourcesContent: true,
   outfile: clientOutfilePath,
   minify: isProduction,
   banner: {
-    js: clientBundleBanner,
+    js: clientBundleBanner("client JS bundle"),
   },
   treeShaking: "ignore-annotations",
   run: false,
@@ -129,6 +139,14 @@ build({
       latestCompletedBuildId = inProgressBuildId;
       if (cliopts.watch) {
         initiateRefresh({serverPort});
+      }
+
+      if (buildResult.metafile) {
+        fs.writeFile(
+          "client_meta.json",
+          JSON.stringify(buildResult.metafile, null, 2),
+          () => {},
+        );
       }
     }
     inProgressBuildId = null;

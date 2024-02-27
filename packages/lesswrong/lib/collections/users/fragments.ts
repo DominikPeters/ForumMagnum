@@ -169,6 +169,7 @@ registerFragment(`
     recommendationSettings
     theme
 
+    bookmarkCount
     bookmarkedPostsMetadata
 
     hiddenPostsMetadata
@@ -199,6 +200,7 @@ registerFragment(`
     notificationSubforumUnread
     subforumPreferredLayout
     
+    hideJobAdUntil
     experiencedIn
     interestedIn
     
@@ -270,18 +272,23 @@ registerFragment(`
           reactionType
           userId
         }
+        eaAddedReacts
       }
       comments {
         _id
         scoreChange
         description
         postId
+        postTitle
+        postSlug
         tagSlug
+        tagName
         tagCommentType
         addedReacts {
           reactionType
           userId
         }
+        eaAddedReacts
       }
       tagRevisions {
         _id
@@ -293,6 +300,7 @@ registerFragment(`
           reactionType
           userId
         }
+        eaAddedReacts
       }
     }
   }
@@ -481,6 +489,7 @@ registerFragment(`
     notificationRepliesToMyComments
     notificationRepliesToSubscribedComments
     notificationSubscribedUserPost
+    notificationSubscribedUserComment
     notificationSubscribedTagPost
     notificationPostsInGroups
     notificationPrivateMessage
@@ -573,5 +582,16 @@ registerFragment(`
   fragment UsersOptedInToDialogueFacilitation on User {
     _id
     displayName
+  }
+`);
+
+registerFragment(`
+  fragment UserOnboardingAuthor on User {
+    _id
+    displayName
+    profileImageId
+    karma
+    jobTitle
+    organization
   }
 `);

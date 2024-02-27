@@ -38,7 +38,7 @@ const RecentDiscussionFeed = ({
 }) => {
   const [expandAllThreads, setExpandAllThreads] = useState(false);
   const [showShortformFeed, setShowShortformFeed] = useState(false);
-  const refetchRef = useRef<null|(()=>void)>(null);
+  const refetchRef = useRef<null|(() => void)>(null);
   const currentUser = useCurrentUser();
   const expandAll = currentUser?.noCollapseCommentsFrontpage || expandAllThreads
 
@@ -59,8 +59,6 @@ const RecentDiscussionFeed = ({
   const {
     SingleColumnSection,
     SectionTitle,
-    SectionButton,
-    ShortformSubmitForm,
     MixedTypeFeed,
     AnalyticsInViewTracker,
   } = Components;
@@ -79,20 +77,11 @@ const RecentDiscussionFeed = ({
     MeetupsPokeComponent,
   } = recentDisucssionFeedComponents;
 
-  const showShortformButton = isLWorAF && currentUser?.isReviewed && shortformButton && !currentUser.allCommentingDisabled
   return (
     <AnalyticsContext pageSectionContext="recentDiscussion">
       <AnalyticsInViewTracker eventProps={{inViewType: "recentDiscussion"}}>
         <SingleColumnSection>
-          <SectionTitle title={title} >
-            {showShortformButton && <div onClick={toggleShortformFeed}>
-              <SectionButton>
-                <AddBoxIcon />
-                New Shortform Post
-              </SectionButton>
-            </div>}
-          </SectionTitle>
-          {showShortformFeed && <ShortformSubmitForm successCallback={refetch}/>}
+          <SectionTitle title={title} />
           <MixedTypeFeed
             firstPageSize={10}
             pageSize={20}

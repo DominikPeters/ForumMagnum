@@ -144,9 +144,15 @@ const forumComponentPalette = (shadePalette: ThemeShadePalette) =>
       },
       panelBackground: {
         default: shadePalette.grey[20],
+        modalBackground: "#292929",
+        loginInput: "#3d3d3d",
+        loginInputHovered: "#3f3f3f",
+        onboardingSection: "#424242",
+        onboardingPodcast: "#525252",
       },
       background: {
-        primaryTranslucent: "rgba(12,134,155,0.4)"
+        primaryTranslucent: "rgba(12,134,155,0.4)",
+        loginBackdrop: "rgba(0,0,0,0.5)",
       }
     },
     LessWrong: {
@@ -226,6 +232,7 @@ export const darkModeTheme: UserThemeSpecification = {
       primaryTranslucentHeavy: "rgba(99,141,103,0.6)",
       warningTranslucent: "rgba(255,173,8,0.3)",
       transparent: 'transparent',
+      digestAdBannerInput: shadePalette.grey[300],
     },
     border: {
       itemSeparatorBottom: shadePalette.greyBorder("1px", .2),
@@ -236,12 +243,17 @@ export const darkModeTheme: UserThemeSpecification = {
       secondaryHighlight: '#3e503a',
       secondaryHighlight2: '#3e503a',
       mentionsBaloon: shadePalette.grey[100],
+      eaButtonGreyOutline: "#5F5F5F",
     },
     buttons: {
       mentions: {
         hover: shadePalette.grey[100],
         selected: "#0c70c7",
         selectedHover: "#0b62ae",
+      },
+      digestAdBannerNoThanks: {
+        background: shadePalette.grey[600],
+        hoverBackground: shadePalette.grey[700],
       },
     },
     intercom: {

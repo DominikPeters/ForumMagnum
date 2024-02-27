@@ -16,6 +16,7 @@ import {
   hasPostInlineReactionsSetting,
 } from './instanceSettings'
 import { userOverNKarmaOrApproved } from "./vulcan-users/permissions";
+import {isFriendlyUI} from '../themes/forumTheme'
 
 // States for in-progress features
 const adminOnly = (user: UsersCurrent|DbUser|null): boolean => !!user?.isAdmin; // eslint-disable-line no-unused-vars
@@ -41,7 +42,7 @@ export const userHasDefaultProfilePhotos = disabled
 
 export const userHasAutosummarize = adminOnly
 
-export const userHasThemePicker = isEAForum ? adminOnly : shippedFeature;
+export const userHasThemePicker = isFriendlyUI ? adminOnly : shippedFeature;
 
 export const userHasShortformTags = isEAForum ? shippedFeature : disabled;
 
@@ -57,6 +58,7 @@ export const userHasPopularCommentsSection = isEAForum ? shippedFeature : disabl
 export const dialoguesEnabled = hasDialoguesSetting.get();
 export const ckEditorUserSessionsEnabled = isLWorAF;
 export const inlineReactsHoverEnabled = hasPostInlineReactionsSetting.get();
+export const allowSubscribeToUserComments = true;
 /** On the post page, do we show users other content they might want to read */
 export const hasPostRecommendations = isEAForum;
 /** Some Forums, notably the EA Forum, have a weekly digest that users can sign up to receive */

@@ -1,7 +1,7 @@
 import React, { FC, useEffect } from 'react';
 import { Components, registerComponent } from '../../lib/vulcan-lib';
 import { useMulti } from '../../lib/crud/withMulti';
-import { isFriendlyUI } from '../../themes/forumTheme';
+import { isFriendlyUI, preferredHeadingCase } from '../../themes/forumTheme';
 
 const styles = (_: ThemeType): JssStyles => ({
   shortformGroup: {
@@ -38,7 +38,7 @@ const ShortformItem: FC<{comment: ShortformComments}> = ({comment}) => {
 }
 
 const ShortformTimeBlock  = ({reportEmpty, terms, classes}: {
-  reportEmpty: ()=>void,
+  reportEmpty: () => void,
   terms: CommentsViewTerms,
   classes: ClassesType,
 }) => {
@@ -67,7 +67,7 @@ const ShortformTimeBlock  = ({reportEmpty, terms, classes}: {
       <div className={classes.subtitle}>
         <ContentType
           type="shortform"
-          label={isFriendlyUI ? "Quick takes" : "Shortform"}
+          label={preferredHeadingCase("Quick Takes")}
         />
       </div>
       {comments.map((comment) =>

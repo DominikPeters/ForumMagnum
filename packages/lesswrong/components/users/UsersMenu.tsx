@@ -2,7 +2,7 @@ import React, { MouseEvent, useContext } from 'react';
 import { Components, registerComponent } from '../../lib/vulcan-lib';
 import { Link } from '../../lib/reactRouterWrapper';
 import { userCanComment, userCanCreateField, userCanDo, userIsAdminOrMod, userIsMemberOf, userOverNKarmaOrApproved } from '../../lib/vulcan-users/permissions';
-import { userGetDisplayName } from '../../lib/collections/users/helpers';
+import { userGetAnalyticsUrl, userGetDisplayName } from '../../lib/collections/users/helpers';
 import { dialoguesEnabled, userHasThemePicker } from '../../lib/betas';
 
 import Paper from '@material-ui/core/Paper';
@@ -177,15 +177,15 @@ const UsersMenu = ({classes}: {
       )
     : null,
     /*
-      * This is currently disabled for unreviewed users on the EA forum
+      * This is currently disabled for unreviewed users
       * as there's issues with the new quick takes entry for such users.
       * Long-term, we should fix these issues and reenable this option.
       */
     newShortform: () =>
-      showNewButtons && (!isFriendlyUI || userCanComment(currentUser))
+      showNewButtons && userCanComment(currentUser)
         ? (
           <DropdownItem
-            title={isFriendlyUI ? "New quick take" : "New Shortform"}
+            title={preferredHeadingCase("New Quick Take")}
             onClick={() => openDialog({componentName:"NewShortformDialog"})}
           />
         )
@@ -297,7 +297,7 @@ const UsersMenu = ({classes}: {
               }
               {isEAForum && <DropdownItem
                 title={"Post stats"}
-                to={`/users/${currentUser.slug}/stats`}
+                to={userGetAnalyticsUrl(currentUser)}
                 icon="BarChart"
                 iconClassName={classes.icon}
               />}
@@ -311,7 +311,8 @@ const UsersMenu = ({classes}: {
               />
               {currentUser.shortformFeedId &&
                 <DropdownItem
-                  title={isFriendlyUI ? "Your quick takes" : "Shortform Page"}
+                  // TODO: get Habryka's take on what the title here should be
+                  title={preferredHeadingCase("Your Quick Takes")}
                   to={postGetPageUrl({
                     _id: currentUser.shortformFeedId,
                     slug: "shortform",
@@ -320,7 +321,6 @@ const UsersMenu = ({classes}: {
                   iconClassName={classes.icon}
                 />
               }
-              {isFriendlyUI && messagesNode}
               {isFriendlyUI && accountSettingsNode}
   
               {/*

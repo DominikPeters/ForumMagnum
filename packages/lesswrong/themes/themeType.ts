@@ -219,6 +219,7 @@ declare global {
       yellow: ColorString,
       recentDiscussionGreen: ColorString,
       recentDiscussionGrey: ColorString,
+      headerKarma: ColorString,
       activeDotOrange: ColorString,
 
       commentsBubble: {
@@ -240,6 +241,7 @@ declare global {
       grey200: string,
       grey300: string,
       grey400: string,
+      grey800: string,
       maxIntensity: string,
       tableHeadingDivider: string,
       table: string,
@@ -259,6 +261,7 @@ declare global {
       dashed500: string,
       mentionsBaloon: string,
       wrappedSummary: string,
+      eaButtonGreyOutline: string,
     },
     panelBackground: {
       default: ColorString,
@@ -297,6 +300,9 @@ declare global {
       recentDiscussionThread: ColorString,
       tooltipBackground: ColorString,
       tooltipBackground2: ColorString,
+      modalBackground: ColorString,
+      loginInput: ColorString,
+      loginInputHovered: ColorString,
       tenPercent: ColorString,
       sunshineReportedContent: ColorString,
       sunshineFlaggedUser: ColorString,
@@ -314,6 +320,8 @@ declare global {
       strawpoll: ColorString,
       userProfileImageHover: ColorString,
       userProfileImageLoading: string,
+      onboardingSection: ColorString,
+      onboardingPodcast: ColorString,
     },
     boxShadow: {
       default: string,
@@ -374,6 +382,10 @@ declare global {
         selected: ColorString,
         selectedHover: ColorString,
       },
+      digestAdBannerNoThanks: {
+        background: ColorString,
+        hoverBackground: ColorString,
+      },
     },
     tag: {
       text: ColorString,
@@ -389,6 +401,9 @@ declare global {
       hollowTagBorder: string,
       boxShadow: string,
       addTagButtonBackground: ColorString,
+      onboardingBackground: ColorString,
+      onboardingBackgroundHover: ColorString,
+      onboardingBackgroundSelected: ColorString,
     },
     geosuggest: {
       dropdownBackground: ColorString,
@@ -402,6 +417,7 @@ declare global {
       activeProgress: ColorString,
       progressBar: ColorString,
       adminButton: ColorString,
+      winner: ColorString,
     },
     background: {
       default: ColorString
@@ -409,6 +425,7 @@ declare global {
       contrastInDarkMode: ColorString,
       pageActiveAreaBackground: ColorString,
       translucentBackground: ColorString,
+      loginBackdrop: ColorString,
       diffInserted: ColorString,
       diffDeleted: ColorString,
       usersListItem: ColorString,
@@ -419,6 +436,7 @@ declare global {
       warningTranslucent: ColorString,
       transparent: ColorString,
       imageOverlay: ColorString,
+      digestAdBannerInput: ColorString,
     },
     header: {
       text: ColorString,
@@ -497,8 +515,8 @@ declare global {
     
     breakpoints: {
       /** Down is *inclusive* - down(sm) will go up to the md breakpoint */
-      down:  (breakpoint: BreakpointName|number)=>string,
-      up: (breakpoint: BreakpointName|number)=>string,
+      down:  (breakpoint: BreakpointName|number) => string,
+      up: (breakpoint: BreakpointName|number) => string,
       values: Record<BreakpointName,number>,
     },
     spacing: {
