@@ -206,6 +206,8 @@ importComponent("NotificationsPageEmpty", () => require('../components/notificat
 importComponent("NotificationsPageItem", () => require('../components/notifications/NotificationsPage/NotificationsPageItem'));
 importComponent("NotificationsPageNotification", () => require('../components/notifications/NotificationsPage/NotificationsPageNotification'));
 importComponent("NotificationsPageKarmaChange", () => require('../components/notifications/NotificationsPage/NotificationsPageKarmaChange'));
+importComponent("NotificationsPageKarmaChangeList", () => require('../components/notifications/NotificationsPage/NotificationsPageKarmaChangeList'));
+importComponent("NotificationsTooltip", () => require('../components/notifications/NotificationsPage/NotificationsTooltip'));
 importComponent("NotificationsMenu", () => require('../components/notifications/NotificationsMenu'));
 importComponent("NotificationsList", () => require('../components/notifications/NotificationsList'));
 importComponent("TagRelNotificationItem", () => require('../components/notifications/TagRelNotificationItem'));
@@ -292,7 +294,6 @@ importComponent("PopperCard", () => require('../components/common/PopperCard'));
 importComponent("Footer", () => require('../components/common/Footer'));
 importComponent("LoadMore", () => require('../components/common/LoadMore'));
 importComponent("ReCaptcha", () => require('../components/common/ReCaptcha'));
-importComponent("DefaultStyleFormGroup", () => require('../components/common/DefaultStyleFormGroup'))
 importComponent("LinkCard", () => require('../components/common/LinkCard'));
 importComponent("LWClickAwayListener", () => require('../components/common/LWClickAwayListener'));
 importComponent("LWDialog", () => require('../components/common/LWDialog'));
@@ -952,6 +953,10 @@ importComponent("SelectLocalgroup", () => require('../components/form-components
 importComponent("PrefixedInput", () => require('../components/form-components/PrefixedInput'));
 importComponent("PodcastEpisodeInput", () => require('../components/form-components/PodcastEpisodeInput'));
 importComponent("ThemeSelect", () => require('../components/form-components/ThemeSelect'));
+
+// Form group components
+importComponent("FormGroupLayout", () => require('../components/form-components/FormGroupLayout'))
+importComponent("FormGroupNoStyling", () => require('../components/form-components/FormGroupNoStyling'))
 
 importComponent("PostSummaryDialog", () => require('../components/languageModels/PostSummaryDialog'));
 
